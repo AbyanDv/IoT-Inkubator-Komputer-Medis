@@ -16,7 +16,7 @@
 
             <div>
                 <label for="from" class="block text-sm font-medium">Dari</label>
-                <input id="from" type="datetime-local" wire:model.live="from"
+                <input id="from" type="datetime-local" wire:model.live.debounce.500ms="from"
                        @error('from') aria-invalid="true" aria-describedby="from-error" @enderror
                        class="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm tabular-nums
                               focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10">
@@ -27,7 +27,7 @@
 
             <div>
                 <label for="to" class="block text-sm font-medium">Sampai</label>
-                <input id="to" type="datetime-local" wire:model.live="to"
+                <input id="to" type="datetime-local" wire:model.live.debounce.500ms="to"
                        @error('to') aria-invalid="true" aria-describedby="to-error" @enderror
                        class="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm tabular-nums
                               focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10">

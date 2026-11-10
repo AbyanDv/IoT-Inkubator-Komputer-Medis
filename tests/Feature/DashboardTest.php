@@ -37,6 +37,15 @@ class DashboardTest extends TestCase
         }
     }
 
+    public function test_authenticated_pages_render_full_layout(): void
+    {
+        $this->actingAs($this->petugas());
+
+        foreach (['/', '/bayi', '/riwayat'] as $uri) {
+            $this->get($uri)->assertOk()->assertSee('Inkubator Bayi');
+        }
+    }
+
     public function test_login_and_logout_work(): void
     {
         $user = User::factory()->create(['password' => 'rahasia123']);

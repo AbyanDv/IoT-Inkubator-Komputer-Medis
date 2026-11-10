@@ -27,19 +27,19 @@ class History extends Component
         $this->to = now()->format('Y-m-d\TH:i');
     }
 
-    public function updatedBabyId(): void
+    public function updated(string $property): void
     {
-        $this->resetPage();
-    }
+        if (! in_array($property, ['babyId', 'from', 'to'], true)) {
+            return;
+        }
 
-    public function updatedFrom(): void
-    {
         $this->resetPage();
-    }
 
-    public function updatedTo(): void
-    {
-        $this->resetPage();
+        $this->validate([
+            'babyId' => ['nullable', 'integer', 'exists:babies,id'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+        ]);
     }
 
     public function resetFilters(): void
@@ -51,17 +51,15 @@ class History extends Component
 
     public function render()
     {
-        $this->validate([
-            'babyId' => ['nullable', 'integer', 'exists:babies,id'],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date', 'after_or_equal:from'],
-        ]);
-
         $baby = $this->babyId ? Baby::find($this->babyId) : null;
 
+        // Ignore unparsable dates so a bad input cannot break the query.
+        $from = $this->from !== '' && strtotime($this->from) ? $this->from : null;
+        $to = $this->to !== '' && strtotime($this->to) ? $this->to : null;
+
         $readings = $baby?->readings()
-            ->when($this->from, fn ($q) => $q->where('recorded_at', '>=', $this->from))
-            ->when($this->to, fn ($q) => $q->where('recorded_at', '<=', $this->to))
+            ->when($from, fn ($q) => $q->where('recorded_at', '>=', $from))
+            ->when($to, fn ($q) => $q->where('recorded_at', '<=', $to))
             ->latest('recorded_at')
             ->paginate(25);
 
