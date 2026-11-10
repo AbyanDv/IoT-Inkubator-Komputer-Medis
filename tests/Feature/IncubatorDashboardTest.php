@@ -80,9 +80,13 @@ class IncubatorDashboardTest extends TestCase
         $this->assertDatabaseHas('device_configs', ['id' => $config->id, 'is_active' => false]);
     }
 
-    public function test_guest_is_redirected_to_login_form(): void
+    public function test_guest_is_redirected_to_login_form_and_protected_pages(): void
     {
+        $incubator = Incubator::factory()->create();
+
         $this->get('/incubators')->assertRedirect('/login');
+        $this->get('/incubators/'.$incubator->id)->assertRedirect('/login');
+        $this->get('/incubators/'.$incubator->id.'/config')->assertRedirect('/login');
         $this->get('/login')->assertOk()->assertSee('Log in')->assertSee('name="_token"', false);
     }
 
@@ -104,7 +108,8 @@ class IncubatorDashboardTest extends TestCase
         $user = User::factory()->create(['email' => 'user@example.test']);
 
         $this->from('/login')->post('/login', ['email' => $user->email, 'password' => 'wrong'])
-            ->assertRedirect('/login')->assertSessionHasErrors('email');
+            ->assertRedirect('/login')->assertSessionHasErrors('email')->assertSessionHas('errors');
+        $this->assertStringContainsString('These credentials do not match our records or account is inactive.', session('errors')->first('email'));
         $this->assertGuest();
 
         $user->update(['is_active' => false]);

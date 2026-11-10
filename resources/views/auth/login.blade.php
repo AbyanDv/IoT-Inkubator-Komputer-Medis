@@ -10,7 +10,10 @@
         <h1>Log in</h1>
         @if ($errors->any())
             <div role="alert">
-                <p>Login failed. Check your credentials and account status.</p>
+                @foreach ($errors->all() as $error)
+                    <p>{{ $error }}</p>
+                @endforeach
+            </div>
         @endif
         <form method="POST" action="/login">
             @csrf
