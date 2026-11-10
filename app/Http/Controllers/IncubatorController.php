@@ -72,7 +72,12 @@ class IncubatorController extends Controller
                     'baby_id' => 'Incubator already has an assigned baby.',
                 ]);
             }
-            if ($baby->currentPairing()->exists()) {
+            if ($baby->status !== 'active') {
+                throw ValidationException::withMessages([
+                    'baby_id' => 'Only active babies can be assigned.',
+                ]);
+            }
+            if ($baby->currentPairing()->exists() || $baby->currentIncubator()->exists()) {
                 throw ValidationException::withMessages([
                     'baby_id' => 'Baby is already assigned to another incubator.',
                 ]);

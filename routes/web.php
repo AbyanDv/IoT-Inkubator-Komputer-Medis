@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BabyController;
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\IncubatorController;
 use App\Http\Controllers\SessionController;
@@ -18,6 +19,12 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [SessionController::class, 'destroy'])->middleware('auth')->name('logout');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/babies', [BabyController::class, 'index'])->name('babies.index');
+    Route::post('/babies', [BabyController::class, 'store'])->name('babies.store');
+    Route::get('/babies/{baby}', [BabyController::class, 'show'])->name('babies.show');
+    Route::put('/babies/{baby}', [BabyController::class, 'update'])->name('babies.update');
+    Route::delete('/babies/{baby}', [BabyController::class, 'destroy'])->name('babies.destroy');
+    Route::post('/babies/{baby}/deactivate', [BabyController::class, 'deactivate'])->name('babies.deactivate');
     Route::get('/incubators', [IncubatorController::class, 'index'])->name('incubators.index');
     Route::get('/incubators/{incubator}', [IncubatorController::class, 'show'])->name('incubators.show');
     Route::post('/incubators/{incubator}/pair', [IncubatorController::class, 'pair'])
