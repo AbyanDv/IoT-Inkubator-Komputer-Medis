@@ -148,7 +148,9 @@ class DeviceApiTest extends TestCase
             'priority' => 'warning',
             'message' => 'Watchdog reset',
             'payload' => ['reason' => 'timeout'],
-        ], ['X-Device-Token' => 'test-token-abc123'])->assertCreated();
+        ], ['X-Device-Token' => 'test-token-abc123'])
+            ->assertCreated()
+            ->assertJson(['status' => 'success']);
 
         $this->assertDatabaseHas('device_events', [
             'incubator_id' => $this->incubator->id,
@@ -165,8 +167,11 @@ class DeviceApiTest extends TestCase
 
         $this->getJson('/api/devices/config', $headers)
             ->assertOk()
+            ->assertJson(['status' => 'success'])
             ->assertJsonPath('config.version', 2);
-        $this->postJson('/api/devices/ack', ['config_version' => 2], $headers)->assertOk();
+        $this->postJson('/api/devices/ack', ['config_version' => 2], $headers)
+            ->assertOk()
+            ->assertJson(['status' => 'success']);
 
         $this->assertSame(2, $this->incubator->fresh()->last_config_version);
         $this->assertNotNull(DeviceConfig::query()->where('incubator_id', $this->incubator->id)->first()->applied_at);
