@@ -95,7 +95,7 @@ void realtimeControlTask(void* pvParameters) {
             activeConfig.fan_pwm_manual = 0;
             activeConfig.blue_led_enabled = false;
             activeConfig.telemetry_interval_sec = DEFAULT_TELEMETRY_SEC;
-            activeConfigVersion = appliedConfigVersion;
+            activeConfigVersion = 1;
         }
 
         // Apply dynamic tuning parameters to PID

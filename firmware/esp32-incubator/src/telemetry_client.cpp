@@ -69,16 +69,16 @@ String TelemetryClient::serializeTelemetry(const TelemetrySnapshot& snapshot) {
 
     doc["device_code"] = snapshot.device_code;
     doc["applied_config_version"] = snapshot.applied_config_version;
-    doc["temperature_object"] = serialized(String(snapshot.temperature_object, 2));
-    doc["temperature_room"] = serialized(String(snapshot.temperature_room, 2));
-    doc["humidity"] = serialized(String(snapshot.humidity, 2));
+    doc["temperature_object"] = snapshot.temperature_object;
+    doc["temperature_room"] = snapshot.temperature_room;
+    doc["humidity"] = snapshot.humidity;
     doc["heater_pwm"] = snapshot.heater_pwm;
     doc["fan_pwm"] = snapshot.fan_pwm;
     doc["blue_led_status"] = snapshot.blue_led_status;
 
     JsonObject sensorStatus = doc["sensor_status"].to<JsonObject>();
-    sensorStatus["ds18b20"] = snapshot.ds18b20_status;
-    sensorStatus["dht22"] = snapshot.dht22_status;
+    sensorStatus["ds18b20"] = snapshot.ds18b20_ok;
+    sensorStatus["dht22"] = snapshot.dht22_ok;
 
     // ISO 8601 Timestamp: if SNTP has synced, format standard timestamp; otherwise format uptime
     char timeBuffer[36];
@@ -86,7 +86,7 @@ String TelemetryClient::serializeTelemetry(const TelemetrySnapshot& snapshot) {
     if (now > 1600000000) {
         struct tm timeinfo;
         localtime_r(&now, &timeinfo);
-        strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%dT%H:%M:%S+07:00", &timeinfo);
+        strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%dT%H:%M:%S%z", &timeinfo);
     } else {
         snprintf(timeBuffer, sizeof(timeBuffer), "BOOT+%luS", (unsigned long)(snapshot.uptime_ms / 1000));
     }
@@ -129,7 +129,7 @@ bool TelemetryClient::parseTelemetryResponse(const String& jsonResponse, Telemet
 
     if (outResponse.config_update.has_update && doc["config"].is<JsonObject>()) {
         JsonObject cfg = doc["config"];
-        outResponse.config_update.server_config_version = cfg["config_version"] | outResponse.config_update.server_config_version;
+        outResponse.config_update.server_config_version = cfg["config_version"] | (cfg["version"] | outResponse.config_update.server_config_version);
         
         float sp = cfg["temperature_setpoint"] | TEMP_SETPOINT_DEFAULT;
         if (sp < TEMP_SETPOINT_MIN) sp = TEMP_SETPOINT_MIN;
@@ -141,17 +141,24 @@ bool TelemetryClient::parseTelemetryResponse(const String& jsonResponse, Telemet
             outResponse.config_update.pid_ki = cfg["pid"]["ki"] | DEFAULT_PID_KI;
             outResponse.config_update.pid_kd = cfg["pid"]["kd"] | DEFAULT_PID_KD;
         } else {
-            outResponse.config_update.pid_kp = DEFAULT_PID_KP;
-            outResponse.config_update.pid_ki = DEFAULT_PID_KI;
-            outResponse.config_update.pid_kd = DEFAULT_PID_KD;
+            outResponse.config_update.pid_kp = cfg["pid_kp"] | DEFAULT_PID_KP;
+            outResponse.config_update.pid_ki = cfg["pid_ki"] | DEFAULT_PID_KI;
+            outResponse.config_update.pid_kd = cfg["pid_kd"] | DEFAULT_PID_KD;
         }
 
         const char* mode = cfg["fan_mode"] | "auto";
+        if (strcmp(mode, "auto") != 0 && strcmp(mode, "pwm") != 0) {
+            mode = "auto";
+        }
         strncpy(outResponse.config_update.fan_mode, mode, sizeof(outResponse.config_update.fan_mode) - 1);
 
-        outResponse.config_update.fan_pwm_manual = cfg["fan_pwm_manual"] | 0;
+        uint16_t fanPwm = cfg["fan_pwm_manual"] | 0;
+        outResponse.config_update.fan_pwm_manual = fanPwm > 255 ? 255 : (uint8_t)fanPwm;
         outResponse.config_update.blue_led_enabled = cfg["blue_led_enabled"] | false;
-        outResponse.config_update.telemetry_interval_sec = cfg["telemetry_interval_sec"] | DEFAULT_TELEMETRY_SEC;
+        uint32_t telemetryInterval = cfg["telemetry_interval_sec"] | DEFAULT_TELEMETRY_SEC;
+        if (telemetryInterval < 3) telemetryInterval = 3;
+        if (telemetryInterval > 5) telemetryInterval = 5;
+        outResponse.config_update.telemetry_interval_sec = telemetryInterval;
     }
 
     return true;
@@ -176,8 +183,11 @@ TelemetryResponse TelemetryClient::sendTelemetry(const TelemetrySnapshot& snapsh
     WiFiClientSecure secureClient;
 
     if (isHttps) {
-        secureClient.setInsecure(); // Permits connection to development SSL endpoints
-        beginOk = http.begin(secureClient, _serverUrl);
+        // TLS certificate validation requires a provisioned CA; fail closed until configured.
+        response.success = false;
+        response.httpCode = -3;
+        strncpy(response.errorMessage, "TLS_CA_NOT_CONFIGURED", sizeof(response.errorMessage) - 1);
+        return response;
     } else {
         beginOk = http.begin(plainClient, _serverUrl);
     }

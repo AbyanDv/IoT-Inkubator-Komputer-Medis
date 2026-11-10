@@ -143,8 +143,10 @@ ESP32 mengirim data telemetri ke server Laravel setiap 3–5 detik via endpoint:
 ### Header Permintaan:
 ```http
 Content-Type: application/json
-X-Device-Token: sec_dev_tok_93847298374
+X-Device-Token: <device token from device provisioning>
 ```
+
+Never commit Wi-Fi credentials or device tokens. Set `DEFAULT_WIFI_SSID`, `DEFAULT_WIFI_PASS`, `DEFAULT_SERVER_URL`, and `DEFAULT_DEVICE_TOKEN` in `firmware/esp32-incubator/include/config.h` before building. HTTPS currently fails closed with `TLS_CA_NOT_CONFIGURED` until a trusted CA certificate is provisioned and `WiFiClientSecure::setCACert` is wired into `TelemetryClient`. Use HTTP only on trusted development networks; never disable certificate verification in production.
 
 ### Payload Telemetri (ESP32 -> Server):
 ```json
@@ -158,8 +160,8 @@ X-Device-Token: sec_dev_tok_93847298374
   "fan_pwm": 80,
   "blue_led_status": false,
   "sensor_status": {
-    "ds18b20": "OK",
-    "dht22": "OK"
+    "ds18b20": true,
+    "dht22": true
   },
   "timestamp": "2026-11-10T08:15:00+07:00"
 }
