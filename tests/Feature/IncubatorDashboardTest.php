@@ -14,6 +14,26 @@ class IncubatorDashboardTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_dashboard_renders_responsive_non_clinical_ui_and_live_telemetry_fields(): void
+    {
+        $user = User::factory()->create(['role' => 'admin']);
+        $incubator = Incubator::factory()->create();
+
+        $this->actingAs($user)->get('/incubators')->assertOk()
+            ->assertSee('md:hidden', false)
+            ->assertSee('md:block', false)
+            ->assertSee('Simulation prototype only. Not for clinical use or patient care.')
+            ->assertSee('babies.index');
+
+        $this->get('/incubators/'.$incubator->id)->assertOk()
+            ->assertSee('setInterval(() => this.poll(), 2500)', false)
+            ->assertSee('heater_pwm', false)
+            ->assertSee('blue_led_status', false)
+            ->assertSee('Simulation prototype only. Not for clinical use or patient care.')
+            ->assertSee('incubators.pair', false)
+            ->assertSee('incubators.unpair', false);
+    }
+
     public function test_admin_can_pair_and_unpair_baby_with_audit_records(): void
     {
         $user = User::factory()->create(['role' => 'admin']);
