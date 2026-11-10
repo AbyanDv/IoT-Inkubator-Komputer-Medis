@@ -8,6 +8,7 @@ use App\Models\DevicePairing;
 use App\Models\Incubator;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class BabyAndPairingTest extends TestCase
@@ -24,6 +25,40 @@ class BabyAndPairingTest extends TestCase
         ])->assertRedirect();
         $this->assertDatabaseHas('babies', ['baby_code' => 'BABY-100', 'status' => 'active', 'created_by' => $admin->id]);
         $this->from('/babies')->post('/babies', [])->assertRedirect('/babies')->assertSessionHasErrors(['baby_code', 'name', 'birth_date']);
+    }
+
+    public function test_baby_and_incubator_pages_expose_crud_and_device_details(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $baby = Baby::factory()->create();
+        $incubator = Incubator::factory()->create([
+            'status' => 'online',
+            'last_heartbeat_at' => Carbon::now(),
+        ]);
+
+        $this->actingAs($admin)->get('/babies')
+            ->assertOk()->assertSee(route('babies.store'))->assertSee(route('babies.show', $baby));
+        $this->get(route('babies.show', $baby))
+            ->assertOk()->assertSee(route('babies.update', $baby))->assertSee(route('babies.destroy', $baby))->assertSee('name="baby_code"', false);
+        $this->put(route('babies.update', $baby), [
+            'baby_code' => $baby->baby_code, 'name' => 'Updated baby', 'birth_date' => '2026-10-01',
+            'gestational_age_weeks' => 32, 'weight_grams' => 1800, 'length_cm' => 42, 'gender' => 'female',
+        ])->assertRedirect(route('babies.show', $baby));
+
+        $this->get('/incubators')->assertOk()->assertSee('Last heartbeat')->assertSee($incubator->name);
+        $this->get(route('incubators.show', $incubator))
+            ->assertOk()->assertSee('Live telemetry')->assertSee('Baby assignment')->assertSee('Device configuration');
+        $this->get(route('incubators.config.edit', $incubator))
+            ->assertOk()->assertSee(route('incubators.config.update', $incubator))->assertSee('temperature_setpoint');
+    }
+
+    public function test_baby_status_filter_rejects_undefined_values(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->get('/babies?status=unknown')
+            ->assertRedirect('/')
+            ->assertSessionHasErrors('status');
     }
 
     public function test_pairing_is_atomic_and_rejects_baby_already_paired(): void

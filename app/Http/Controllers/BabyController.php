@@ -17,10 +17,15 @@ class BabyController extends Controller
 {
     public function index(Request $request): View
     {
+        $validated = $request->validate([
+            'status' => ['nullable', 'in:active,completed'],
+            'search' => ['nullable', 'string', 'max:255'],
+        ]);
+
         $babies = Baby::query()
             ->with('currentIncubator')
-            ->when($request->string('status')->isNotEmpty(), fn ($query) => $query->where('status', $request->string('status')->toString()))
-            ->when($request->string('search')->isNotEmpty(), fn ($query) => $query->where(fn ($query) => $query->where('name', 'like', '%'.$request->string('search')->toString().'%')->orWhere('baby_code', 'like', '%'.$request->string('search')->toString().'%')))
+            ->when($validated['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
+            ->when($validated['search'] ?? null, fn ($query, string $search) => $query->where(fn ($query) => $query->where('name', 'like', '%'.$search.'%')->orWhere('baby_code', 'like', '%'.$search.'%')))
             ->latest()
             ->paginate(15)
             ->withQueryString();
