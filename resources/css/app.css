@@ -6,4 +6,23 @@
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, monospace;
+
+    /* Snappier than the built-in easings, still calm enough for a monitor. */
+    --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+@layer base {
+    :focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+    }
+}
+
+/* Reading cards fade in when values change; disabled for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+    .reading-value {
+        transition: opacity 200ms var(--ease-out-soft), color 200ms var(--ease-out-soft);
+    }
+}
+
