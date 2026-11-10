@@ -8,6 +8,7 @@ use App\Models\DeviceEvent;
 use App\Models\DeviceTelemetry;
 use App\Models\Incubator;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Carbon;
 
 class DeviceTelemetryController extends Controller
@@ -18,7 +19,7 @@ class DeviceTelemetryController extends Controller
     public function store(StoreTelemetryRequest $request): JsonResponse
     {
         /** @var Incubator $incubator */
-        $incubator = $request->input('incubator');
+        $incubator = $request->attributes->get('incubator');
         $validated = $request->validated();
 
         $telemetry = DeviceTelemetry::create([
@@ -27,9 +28,9 @@ class DeviceTelemetryController extends Controller
             'temperature_object' => $validated['temperature_object'],
             'temperature_room' => $validated['temperature_room'],
             'humidity' => $validated['humidity'],
-            'heater_status' => $validated['heater_pwm'] > 0,
+            'heater_status' => $validated['heater_status'] ?? $validated['heater_pwm'] > 0,
             'heater_pwm' => $validated['heater_pwm'],
-            'fan_status' => $validated['fan_pwm'] > 0,
+            'fan_status' => $validated['fan_status'] ?? $validated['fan_pwm'] > 0,
             'fan_pwm' => $validated['fan_pwm'],
             'blue_led_status' => $validated['blue_led_status'],
             'raw_payload' => $validated,
@@ -45,7 +46,7 @@ class DeviceTelemetryController extends Controller
 
         $this->logSensorFaults($incubator, $validated['sensor_status']);
 
-        return response()->json($this->buildResponse($incubator, $validated));
+        return Response::json($this->buildResponse($incubator, $validated));
     }
 
     /**

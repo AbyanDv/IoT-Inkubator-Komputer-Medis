@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Incubator;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Response;
 use Symfony\Component\HttpFoundation\Response;
 
 class DeviceTokenAuth
@@ -14,10 +15,10 @@ class DeviceTokenAuth
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $token = $request->header('X-Device-Token');
+        $token = $request->header('X-Device-Token') ?? $request->bearerToken();
 
         if (! $token) {
-            return response()->json(['error' => 'Device token required'], 401);
+            return Response::json(['error' => 'Device token required'], 401);
         }
 
         $incubator = Incubator::where('device_token', $token)
@@ -25,10 +26,10 @@ class DeviceTokenAuth
             ->first();
 
         if (! $incubator) {
-            return response()->json(['error' => 'Invalid device token'], 401);
+            return Response::json(['error' => 'Invalid device token'], 401);
         }
 
-        $request->merge(['incubator' => $incubator]);
+        $request->attributes->set('incubator', $incubator);
 
         return $next($request);
     }
