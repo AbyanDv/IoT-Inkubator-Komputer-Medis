@@ -20,13 +20,15 @@ class IncubatorDashboardTest extends TestCase
         $incubator = Incubator::factory()->create();
 
         $this->actingAs($user)->get('/incubators')->assertOk()
-            ->assertSee('md:hidden', false)
-            ->assertSee('md:block', false)
+            ->assertSee('sm:hidden', false)
+            ->assertSee('sm:block', false)
             ->assertSee('Simulation prototype only. Not for clinical use or patient care.')
             ->assertSee('babies.index');
 
         $this->get('/incubators/'.$incubator->id)->assertOk()
             ->assertSee('setInterval(() => this.poll(), 2500)', false)
+            ->assertSee("catch { this.telemetryUnavailable = true; this.updatedAt = 'Telemetry unavailable'; }", false)
+            ->assertSee('telemetryUnavailable ? \'Stale\'', false)
             ->assertSee('heater_pwm', false)
             ->assertSee('blue_led_status', false)
             ->assertSee('Simulation prototype only. Not for clinical use or patient care.')
@@ -129,7 +131,7 @@ class IncubatorDashboardTest extends TestCase
 
         $this->from('/login')->post('/login', ['email' => $user->email, 'password' => 'wrong'])
             ->assertRedirect('/login')->assertSessionHasErrors('email')->assertSessionHas('errors');
-        $this->assertStringContainsString('These credentials do not match our records or account is inactive.', session('errors')->first('email'));
+        $this->assertStringContainsString('These credentials do not match our records or account is inactive.', $this->app['session.store']->get('errors')->first('email'));
         $this->assertGuest();
 
         $user->update(['is_active' => false]);
