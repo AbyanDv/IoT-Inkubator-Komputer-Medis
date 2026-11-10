@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Incubator;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -44,6 +45,14 @@ class ConfigController extends Controller
                 'config_version' => $version,
                 'is_active' => true,
                 'created_by' => $requestUser?->id,
+            ]);
+            AuditLog::create([
+                'user_id' => $requestUser?->id,
+                'action' => 'incubator.config_updated',
+                'target_type' => Incubator::class,
+                'target_id' => $incubator->id,
+                'details' => ['config_version' => $version],
+                'ip_address' => $request->ip(),
             ]);
         });
 
