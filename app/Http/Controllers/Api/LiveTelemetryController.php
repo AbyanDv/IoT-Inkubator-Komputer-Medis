@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DeviceTelemetry;
 use App\Models\Incubator;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Response;
 
 class LiveTelemetryController extends Controller
 {
@@ -19,7 +20,7 @@ class LiveTelemetryController extends Controller
             ->first();
 
         if (! $telemetry) {
-            return response()->json([
+            return Response::json([
                 'status' => 'no_data',
                 'incubator' => [
                     'id' => $incubator->id,
@@ -36,7 +37,7 @@ class LiveTelemetryController extends Controller
             ? $incubator->currentBaby
             : null;
 
-        return response()->json([
+        return Response::json([
             'status' => 'success',
             'incubator' => [
                 'id' => $incubator->id,
@@ -53,6 +54,7 @@ class LiveTelemetryController extends Controller
                 'fan_pwm' => $telemetry->fan_pwm,
                 'blue_led_status' => $telemetry->blue_led_status,
                 'recorded_at' => $telemetry->recorded_at?->toIso8601String(),
+                'sensor_status' => $telemetry->raw_payload['sensor_status'] ?? null,
             ],
             'baby' => $baby ? [
                 'code' => $baby->baby_code,

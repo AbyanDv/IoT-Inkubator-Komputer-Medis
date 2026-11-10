@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\AuditLog;
 use App\Models\Baby;
 use App\Models\DeviceConfig;
 use App\Models\DevicePairing;
@@ -44,13 +43,33 @@ class IncubatorDashboardTest extends TestCase
         $this->assertDatabaseMissing('device_pairings', ['incubator_id' => $second->id, 'baby_id' => $baby->id]);
     }
 
-    public function test_operator_cannot_pair_and_config_versions_increment(): void
+    public function test_operator_and_viewer_cannot_pair_or_unpair(): void
     {
-        $operator = User::factory()->create(['role' => 'operator']);
         $baby = Baby::factory()->create();
         $incubator = Incubator::factory()->create();
-        $this->actingAs($operator)->post('/incubators/'.$incubator->id.'/pair', ['baby_id' => $baby->id])->assertForbidden();
 
+        foreach (['operator', 'viewer'] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+            $this->actingAs($user)->post('/incubators/'.$incubator->id.'/pair', ['baby_id' => $baby->id])->assertForbidden();
+            $this->post('/incubators/'.$incubator->id.'/unpair')->assertForbidden();
+        }
+    }
+
+    public function test_admin_and_super_admin_can_pair_and_unpair(): void
+    {
+        foreach (['admin', 'super_admin'] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+            $baby = Baby::factory()->create();
+            $incubator = Incubator::factory()->create();
+
+            $this->actingAs($user)->post('/incubators/'.$incubator->id.'/pair', ['baby_id' => $baby->id])->assertRedirect();
+            $this->post('/incubators/'.$incubator->id.'/unpair')->assertRedirect();
+        }
+    }
+
+    public function test_config_versions_increment(): void
+    {
+        $incubator = Incubator::factory()->create();
         $config = DeviceConfig::factory()->create(['incubator_id' => $incubator->id, 'config_version' => 2, 'is_active' => true]);
         $admin = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin)->post('/incubators/'.$incubator->id.'/config', [

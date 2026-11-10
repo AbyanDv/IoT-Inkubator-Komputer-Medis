@@ -1,3 +1,4 @@
+{{-- @var \Illuminate\Support\Collection<int, \App\Models\Incubator> $incubators --}}
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Incubators</title><link rel="stylesheet" href="{{ asset('build/assets/app.css') }}"></head>
 <body class="min-h-screen bg-slate-50 text-slate-900"><main class="mx-auto max-w-6xl p-6 md:p-10">

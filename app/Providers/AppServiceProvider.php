@@ -20,6 +20,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Gate::define('manage-pairing', fn ($user): bool => $user->hasRole(['admin', 'super_admin', 'viewer']));
+        Gate::define('manage-pairing', fn ($user): bool => $user->hasRole(['admin', 'super_admin']));
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Baby;
 use App\Models\DevicePairing;
 use App\Models\DeviceTelemetry;
 use App\Models\Incubator;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -32,7 +33,7 @@ class IncubatorController extends Controller
         $latest = $incubator->telemetries()->latest('created_at')->first();
         $history = $incubator->telemetries()->latest('created_at')->take(20)->get()->reverse()->values();
 
-        /** @var \App\Models\User|null $user */
+        /** @var User|null $user */
         $user = Auth::user();
 
         return ViewFacade::make('incubators.show', [
@@ -46,6 +47,7 @@ class IncubatorController extends Controller
                     'heater_pwm' => $latest->heater_pwm,
                     'fan_pwm' => $latest->fan_pwm,
                     'recorded_at' => $latest->recorded_at?->toIso8601String(),
+                    'sensor_status' => $latest->raw_payload['sensor_status'] ?? null,
                 ],
             ] : ['status' => 'no_data', 'telemetry' => null],
             'history' => $history->map(fn (DeviceTelemetry $item): array => [
@@ -53,7 +55,7 @@ class IncubatorController extends Controller
                 'time' => $item->recorded_at?->format('H:i:s') ?? $item->created_at?->format('H:i:s'),
             ]),
             'unassignedBabies' => Baby::whereDoesntHave('currentPairing')->orderBy('name')->get(),
-            'canManagePairing' => $user?->hasRole(['admin', 'super_admin', 'viewer']) ?? false,
+            'canManagePairing' => $user?->hasRole(['admin', 'super_admin']) ?? false,
         ]);
     }
 
