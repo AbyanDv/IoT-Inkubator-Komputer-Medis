@@ -2,12 +2,20 @@
 
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\IncubatorController;
+use App\Http\Controllers\SessionController;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return Redirect::route('incubators.index');
 });
+
+Route::middleware('guest')->group(function () {
+    Route::get('/login', [SessionController::class, 'create'])->name('login');
+    Route::post('/login', [SessionController::class, 'store'])->name('login.store');
+});
+
+Route::post('/logout', [SessionController::class, 'destroy'])->middleware('auth')->name('logout');
 
 Route::middleware('auth')->group(function () {
     Route::get('/incubators', [IncubatorController::class, 'index'])->name('incubators.index');

@@ -80,11 +80,45 @@ class IncubatorDashboardTest extends TestCase
         $this->assertDatabaseHas('device_configs', ['id' => $config->id, 'is_active' => false]);
     }
 
-    public function test_incubator_pages_require_authentication(): void
+    public function test_guest_is_redirected_to_login_form(): void
     {
-        $incubator = Incubator::factory()->create();
+        $this->get('/incubators')->assertRedirect('/login');
+        $this->get('/login')->assertOk()->assertSee('Log in')->assertSee('name="_token"', false);
+    }
 
-        $this->get('/incubators')->assertRedirect();
-        $this->get('/incubators/'.$incubator->id)->assertRedirect();
+    public function test_active_user_can_login_and_logout(): void
+    {
+        $user = User::factory()->create(['email' => 'user@example.test']);
+
+        $this->post('/login', ['email' => $user->email, 'password' => 'password'])
+            ->assertRedirect('/incubators');
+        $this->assertAuthenticatedAs($user);
+
+        $this->post('/logout')->assertRedirect('/login');
+        $this->assertGuest();
+        $this->get('/incubators')->assertRedirect('/login');
+    }
+
+    public function test_login_rejects_invalid_credentials_and_inactive_users(): void
+    {
+        $user = User::factory()->create(['email' => 'user@example.test']);
+
+        $this->from('/login')->post('/login', ['email' => $user->email, 'password' => 'wrong'])
+            ->assertRedirect('/login')->assertSessionHasErrors('email');
+        $this->assertGuest();
+
+        $user->update(['is_active' => false]);
+        $this->from('/login')->post('/login', ['email' => $user->email, 'password' => 'password'])
+            ->assertRedirect('/login')->assertSessionHasErrors('email');
+        $this->assertGuest();
+    }
+
+    public function test_operator_cannot_pair_after_authentication(): void
+    {
+        $user = User::factory()->create(['role' => 'operator']);
+        $incubator = Incubator::factory()->create();
+        $baby = Baby::factory()->create();
+
+        $this->actingAs($user)->post('/incubators/'.$incubator->id.'/pair', ['baby_id' => $baby->id])->assertForbidden();
     }
 }
