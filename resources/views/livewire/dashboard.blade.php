@@ -1,3 +1,4 @@
+{{-- wire:poll throttles to ~5% while the tab is hidden, so the device is not hammered. --}}
 <div wire:poll.2s class="space-y-6">
     @if (! $baby)
         <div class="rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center">
