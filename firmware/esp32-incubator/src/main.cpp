@@ -74,28 +74,21 @@ void realtimeControlTask(void* pvParameters) {
     unsigned long lastPidComputeTime = millis();
     unsigned long lastLcdUpdateTime = 0;
     unsigned long lastTelemetryQueueTime = 0;
+    DeviceRuntimeConfig lastSafeConfig = runtimeConfig;
+    uint32_t lastSafeConfigVersion = appliedConfigVersion;
 
     for (;;) {
         unsigned long now = millis();
 
         // 1. Fetch current runtime configuration safely under mutex
-        DeviceRuntimeConfig activeConfig;
-        uint32_t activeConfigVersion = 1;
+        DeviceRuntimeConfig activeConfig = lastSafeConfig;
+        uint32_t activeConfigVersion = lastSafeConfigVersion;
         if (xSemaphoreTake(configMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
             activeConfig = runtimeConfig;
             activeConfigVersion = appliedConfigVersion;
+            lastSafeConfig = activeConfig;
+            lastSafeConfigVersion = activeConfigVersion;
             xSemaphoreGive(configMutex);
-        } else {
-            // If mutex briefly busy, continue with last known safe tunings
-            activeConfig.temperature_setpoint = TEMP_SETPOINT_DEFAULT;
-            activeConfig.pid_kp = DEFAULT_PID_KP;
-            activeConfig.pid_ki = DEFAULT_PID_KI;
-            activeConfig.pid_kd = DEFAULT_PID_KD;
-            strncpy(activeConfig.fan_mode, "auto", sizeof(activeConfig.fan_mode) - 1);
-            activeConfig.fan_pwm_manual = 0;
-            activeConfig.blue_led_enabled = false;
-            activeConfig.telemetry_interval_sec = DEFAULT_TELEMETRY_SEC;
-            activeConfigVersion = 1;
         }
 
         // Apply dynamic tuning parameters to PID

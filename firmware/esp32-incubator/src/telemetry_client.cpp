@@ -80,17 +80,15 @@ String TelemetryClient::serializeTelemetry(const TelemetrySnapshot& snapshot) {
     sensorStatus["ds18b20"] = snapshot.ds18b20_ok;
     sensorStatus["dht22"] = snapshot.dht22_ok;
 
-    // ISO 8601 Timestamp: if SNTP has synced, format standard timestamp; otherwise format uptime
-    char timeBuffer[36];
+    // Laravel validates timestamp as a date; omit it until SNTP supplies valid time.
     time_t now = time(nullptr);
     if (now > 1600000000) {
+        char timeBuffer[36];
         struct tm timeinfo;
-        localtime_r(&now, &timeinfo);
-        strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%dT%H:%M:%S%z", &timeinfo);
-    } else {
-        snprintf(timeBuffer, sizeof(timeBuffer), "BOOT+%luS", (unsigned long)(snapshot.uptime_ms / 1000));
+        gmtime_r(&now, &timeinfo);
+        strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+        doc["timestamp"] = timeBuffer;
     }
-    doc["timestamp"] = timeBuffer;
 
     String jsonString;
     serializeJson(doc, jsonString);
@@ -129,22 +127,16 @@ bool TelemetryClient::parseTelemetryResponse(const String& jsonResponse, Telemet
 
     if (outResponse.config_update.has_update && doc["config"].is<JsonObject>()) {
         JsonObject cfg = doc["config"];
-        outResponse.config_update.server_config_version = cfg["config_version"] | (cfg["version"] | outResponse.config_update.server_config_version);
+        outResponse.config_update.server_config_version = cfg["version"] | outResponse.config_update.server_config_version;
         
         float sp = cfg["temperature_setpoint"] | TEMP_SETPOINT_DEFAULT;
         if (sp < TEMP_SETPOINT_MIN) sp = TEMP_SETPOINT_MIN;
         if (sp > TEMP_SETPOINT_MAX) sp = TEMP_SETPOINT_MAX;
         outResponse.config_update.temperature_setpoint = sp;
 
-        if (cfg["pid"].is<JsonObject>()) {
-            outResponse.config_update.pid_kp = cfg["pid"]["kp"] | DEFAULT_PID_KP;
-            outResponse.config_update.pid_ki = cfg["pid"]["ki"] | DEFAULT_PID_KI;
-            outResponse.config_update.pid_kd = cfg["pid"]["kd"] | DEFAULT_PID_KD;
-        } else {
-            outResponse.config_update.pid_kp = cfg["pid_kp"] | DEFAULT_PID_KP;
-            outResponse.config_update.pid_ki = cfg["pid_ki"] | DEFAULT_PID_KI;
-            outResponse.config_update.pid_kd = cfg["pid_kd"] | DEFAULT_PID_KD;
-        }
+        outResponse.config_update.pid_kp = cfg["pid_kp"] | DEFAULT_PID_KP;
+        outResponse.config_update.pid_ki = cfg["pid_ki"] | DEFAULT_PID_KI;
+        outResponse.config_update.pid_kd = cfg["pid_kd"] | DEFAULT_PID_KD;
 
         const char* mode = cfg["fan_mode"] | "auto";
         if (strcmp(mode, "auto") != 0 && strcmp(mode, "pwm") != 0) {
