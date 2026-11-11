@@ -4,7 +4,7 @@
 {{-- @var array $initialTelemetry --}}
 {{-- @var array $history --}}
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ $incubator->name }} · Incubator</title><link rel="stylesheet" href="{{ asset('build/assets/app.css') }}"><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script><script defer src="https://cdn.jsdelivr.net/npm/chart.js@4"></script></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ $incubator->name }} · Incubator</title></head>
 <body class="min-h-screen bg-slate-50 text-slate-900"><main class="mx-auto max-w-6xl p-4 sm:p-6 md:p-10" x-data="telemetryDashboard()" x-init="start()">
     <a href="{{ route('incubators.index') }}" class="text-sm font-semibold text-teal-700">← All incubators</a>
     <header class="my-6 flex flex-wrap items-start justify-between gap-4"><div><p class="text-sm font-semibold uppercase tracking-widest text-teal-700">{{ $incubator->device_code }}</p><h1 class="mt-2 text-3xl font-bold">{{ $incubator->name }}</h1><p class="mt-2 text-slate-500">{{ $incubator->currentBaby?->name ?? 'Standby' }} · {{ ucfirst($incubator->status) }}</p><p class="mt-1 text-sm text-slate-500">Last heartbeat: {{ $incubator->last_heartbeat_at?->diffForHumans() ?? '—' }}</p></div><a class="rounded-lg border border-slate-300 bg-white px-4 py-2 font-medium" href="{{ route('incubators.config.edit', $incubator) }}">Device configuration</a></header>
@@ -16,7 +16,10 @@
         <section class="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200"><div class="flex items-center justify-between"><h2 class="text-lg font-bold">Live telemetry</h2><span class="text-xs text-slate-500" x-text="updatedAt"></span></div><template x-if="!telemetry"><p class="py-12 text-center text-slate-500">Waiting for first telemetry reading.</p></template><div class="mt-5 grid grid-cols-2 gap-4 xl:grid-cols-4"><template x-for="metric in metrics" :key="metric.key"><article class="rounded-xl bg-slate-50 p-4"><p class="text-sm text-slate-500" x-text="metric.label"></p><p class="mt-2 text-2xl font-bold"><span x-text="value(metric.key)"></span><span class="ml-1 text-sm font-medium text-slate-500" x-text="metric.unit"></span></p><div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-200"><div class="h-full rounded-full bg-teal-600 transition-all" :style="`width:${percentage(metric.key)}%`"></div></div></article></template></div><div class="mt-5 grid gap-3 sm:grid-cols-2"><div class="rounded-lg bg-slate-50 p-3"><h3 class="text-sm font-semibold text-slate-700">Sensor health</h3><div class="mt-2 flex flex-wrap gap-3"><div class="flex items-center gap-2"><span class="text-sm text-slate-600">DS18B20:</span><span class="rounded-full px-2.5 py-0.5 text-xs font-semibold" :class="telemetryUnavailable ? 'bg-amber-100 text-amber-800' : sensorClass('ds18b20')" x-text="telemetryUnavailable ? 'Stale' : sensorState('ds18b20')"></span></div><div class="flex items-center gap-2"><span class="text-sm text-slate-600">DHT22:</span><span class="rounded-full px-2.5 py-0.5 text-xs font-semibold" :class="telemetryUnavailable ? 'bg-amber-100 text-amber-800' : sensorClass('dht22')" x-text="telemetryUnavailable ? 'Stale' : sensorState('dht22')"></span></div></div></div><div class="rounded-lg bg-slate-50 p-3"><h3 class="text-sm font-semibold text-slate-700">Actuators</h3><p class="mt-2 text-sm text-slate-600">Blue LED: <span class="font-semibold" x-text="telemetryUnavailable ? 'Stale' : actuatorState('blue_led_status')"></span></p><p class="mt-1 text-sm text-slate-600">Heater PWM: <span class="font-semibold" x-text="telemetryUnavailable ? '—' : actuatorLevel('heater_pwm')"></span>% · Fan PWM: <span class="font-semibold" x-text="telemetryUnavailable ? '—' : actuatorLevel('fan_pwm')"></span>%</p></div></div></section>
         <section class="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:col-span-2"><h2 class="text-lg font-bold">Temperature history</h2><div class="mt-4 h-56"><canvas x-ref="temperatureChart" role="img" aria-label="Temperature history"></canvas></div><p class="text-sm text-slate-500">Latest <span x-text="countHistory"></span> stored readings · °C</p></section>
     </div>
-</main><script>
+</main>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
 function telemetryDashboard() {
     return {
         telemetry: @json($initialTelemetry['telemetry']),
@@ -64,4 +67,6 @@ function telemetryDashboard() {
         start() { this.updatedAt = new Date().toLocaleTimeString(); this.updateChart(); this.poll(); setInterval(() => this.poll(), 2500); }
     };
 }
-</script></body></html>
+</script>
+@vite(['resources/css/app.css', 'resources/js/app.js'])
+</body></html>
