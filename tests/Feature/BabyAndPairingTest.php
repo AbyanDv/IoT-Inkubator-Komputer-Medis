@@ -86,6 +86,19 @@ class BabyAndPairingTest extends TestCase
         $this->assertDatabaseHas('incubators', ['id' => $incubator->id, 'current_baby_id' => null]);
     }
 
+    public function test_config_is_restricted_to_admin_roles(): void
+    {
+        $incubator = Incubator::factory()->create();
+
+        foreach (['operator', 'viewer'] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+            $this->actingAs($user)->get(route('incubators.config.edit', $incubator))->assertForbidden();
+            $this->actingAs($user)->post(route('incubators.config.update', $incubator), [
+                'temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4, 'fan_mode' => 'pwm',
+            ])->assertForbidden();
+        }
+    }
+
     public function test_config_update_increments_version_and_audits(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

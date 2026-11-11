@@ -6,14 +6,14 @@ use App\Models\Incubator;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
-use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class DeviceTokenAuth
 {
     /**
      * Authenticate an ESP32 device via X-Device-Token header.
      */
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next): SymfonyResponse
     {
         $token = $request->header('X-Device-Token') ?? $request->bearerToken();
 

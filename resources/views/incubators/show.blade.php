@@ -46,7 +46,7 @@ function telemetryDashboard() {
         percentage(key) { const number = Number(this.telemetry?.[key] ?? 0); return Math.max(0, Math.min(100, number)); },
         async poll() {
             try {
-                const response = await fetch(@js(route('api.incubators.live-telemetry', $incubator)), {headers:{Accept:'application/json'}});
+                const response = await fetch(@js(route('api.incubators.live-telemetry', $incubator)), {headers:{Accept:'application/json'}, credentials:'same-origin'});
                 if (!response.ok) throw new Error('Telemetry request failed');
                 const data = await response.json();
                 this.telemetryUnavailable = false;

@@ -25,4 +25,5 @@ Route::middleware(DeviceTokenAuth::class)->prefix('devices')->group(function () 
 |--------------------------------------------------------------------------
 */
 Route::get('/incubators/{incubator}/live-telemetry', [LiveTelemetryController::class, 'show'])
+    ->middleware('auth')
     ->name('api.incubators.live-telemetry');

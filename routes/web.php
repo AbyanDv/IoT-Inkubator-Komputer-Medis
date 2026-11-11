@@ -33,6 +33,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/incubators/{incubator}/unpair', [IncubatorController::class, 'unpair'])
         ->middleware('can:manage-pairing')
         ->name('incubators.unpair');
-    Route::get('/incubators/{incubator}/config', [ConfigController::class, 'edit'])->name('incubators.config.edit');
-    Route::post('/incubators/{incubator}/config', [ConfigController::class, 'update'])->name('incubators.config.update');
+    Route::get('/incubators/{incubator}/config', [ConfigController::class, 'edit'])
+        ->middleware('can:manage-config')
+        ->name('incubators.config.edit');
+    Route::post('/incubators/{incubator}/config', [ConfigController::class, 'update'])
+        ->middleware('can:manage-config')
+        ->name('incubators.config.update');
 });

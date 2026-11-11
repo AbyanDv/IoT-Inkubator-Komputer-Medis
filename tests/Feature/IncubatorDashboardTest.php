@@ -18,12 +18,13 @@ class IncubatorDashboardTest extends TestCase
     {
         $user = User::factory()->create(['role' => 'admin']);
         $incubator = Incubator::factory()->create();
+        $baby = Baby::factory()->create();
 
         $this->actingAs($user)->get('/incubators')->assertOk()
             ->assertSee('sm:hidden', false)
             ->assertSee('sm:block', false)
             ->assertSee('Simulation prototype only. Not for clinical use or patient care.')
-            ->assertSee('babies.index');
+            ->assertSee('/babies');
 
         $this->get('/incubators/'.$incubator->id)->assertOk()
             ->assertSee('setInterval(() => this.poll(), 2500)', false)
@@ -32,8 +33,13 @@ class IncubatorDashboardTest extends TestCase
             ->assertSee('heater_pwm', false)
             ->assertSee('blue_led_status', false)
             ->assertSee('Simulation prototype only. Not for clinical use or patient care.')
-            ->assertSee('incubators.pair', false)
-            ->assertSee('incubators.unpair', false);
+            ->assertSee('/incubators/'.$incubator->id.'/pair')
+            ->assertSee('/incubators/'.$incubator->id.'/config');
+
+        $paired = Incubator::factory()->create(['current_baby_id' => $baby->id]);
+        DevicePairing::factory()->create(['incubator_id' => $paired->id, 'baby_id' => $baby->id, 'status' => 'active']);
+        $this->get('/incubators/'.$paired->id)->assertOk()
+            ->assertSee('/incubators/'.$paired->id.'/unpair');
     }
 
     public function test_admin_can_pair_and_unpair_baby_with_audit_records(): void
@@ -61,7 +67,7 @@ class IncubatorDashboardTest extends TestCase
         DevicePairing::factory()->create(['incubator_id' => $first->id, 'baby_id' => $baby->id, 'status' => 'active']);
         $second = Incubator::factory()->create();
 
-        $this->actingAs($user)->post('/incubators/'.$second->id.'/pair', ['baby_id' => $baby->id])->assertUnprocessable();
+        $this->actingAs($user)->postJson('/incubators/'.$second->id.'/pair', ['baby_id' => $baby->id])->assertUnprocessable();
         $this->assertDatabaseMissing('device_pairings', ['incubator_id' => $second->id, 'baby_id' => $baby->id]);
     }
 
@@ -100,6 +106,20 @@ class IncubatorDashboardTest extends TestCase
 
         $this->assertDatabaseHas('device_configs', ['incubator_id' => $incubator->id, 'config_version' => 3, 'is_active' => true]);
         $this->assertDatabaseHas('device_configs', ['id' => $config->id, 'is_active' => false]);
+    }
+
+    public function test_operator_and_viewer_cannot_change_config(): void
+    {
+        $incubator = Incubator::factory()->create();
+        $payload = ['temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4, 'fan_mode' => 'pwm'];
+
+        foreach (['operator', 'viewer'] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+            $this->actingAs($user)->get('/incubators/'.$incubator->id.'/config')->assertForbidden();
+            $this->post('/incubators/'.$incubator->id.'/config', $payload)->assertForbidden();
+        }
+
+        $this->assertDatabaseCount('device_configs', 0);
     }
 
     public function test_guest_is_redirected_to_login_form_and_protected_pages(): void

@@ -4,9 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\Baby;
 use App\Models\DeviceConfig;
-use App\Models\DeviceEvent;
 use App\Models\DeviceTelemetry;
 use App\Models\Incubator;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
@@ -196,9 +196,12 @@ class DeviceApiTest extends TestCase
         ]);
     }
 
-    public function test_live_telemetry_returns_latest_and_no_data(): void
+    public function test_live_telemetry_requires_session_and_returns_latest(): void
     {
-        $this->getJson("/api/incubators/{$this->incubator->id}/live-telemetry")
+        $this->getJson("/api/incubators/{$this->incubator->id}/live-telemetry")->assertUnauthorized();
+
+        $user = User::factory()->create(['role' => 'viewer']);
+        $this->actingAs($user)->getJson("/api/incubators/{$this->incubator->id}/live-telemetry")
             ->assertOk()
             ->assertJson(['status' => 'no_data', 'telemetry' => null]);
 
