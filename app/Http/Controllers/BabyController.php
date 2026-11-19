@@ -45,7 +45,11 @@ class BabyController extends Controller
 
     public function show(Baby $baby): View
     {
-        $baby->load(['devicePairings.incubator', 'telemetries' => fn ($query) => $query->latest('recorded_at')->take(100)]);
+        $baby->load([
+            'currentIncubator',
+            'devicePairings.incubator',
+            'telemetries' => fn ($query) => $query->latest('recorded_at')->take(100),
+        ]);
 
         return ViewFacade::make('babies.show', ['baby' => $baby, 'history' => $baby->telemetries->reverse()->values()]);
     }

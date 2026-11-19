@@ -1,87 +1,128 @@
-# Smart Infant Incubator – IoT Monitoring and Management System
+# Smart Infant Incubator
 
-Sistem prototipe pemantauan dan pengelolaan inkubator bayi berbasis *Internet of Things* (IoT) yang mengintegrasikan mikrokontroler **ESP32**, sensor suhu kontak objek **DS18B20**, sensor suhu & kelembapan lingkungan **DHT22**, kendali pemanas *dummy* berbasis algoritma **PID** melalui *driver* **MOSFET logic-level PWM**, kendali sirkulasi udara kipas DC (*PWM*), dan simulasi visual lampu fototerapi (**LED biru**), terhubung ke *backend* web **Laravel** dan *dashboard real-time*.
+Prototipe pemantauan inkubator berbasis Laravel dan ESP32. Dashboard mencatat telemetri, status perangkat, konfigurasi, serta pairing bayi. Firmware menjalankan kontrol lokal; MQTT menghubungkan perangkat dan server melalui broker ber-TLS.
 
-> [!IMPORTANT]
-> **Pernyataan Batasan Etika & Keselamatan Medis (*Safety Boundary*):**
-> Proyek ini merupakan prototipe pembelajaran dan riset akademik untuk mata kuliah **Komputer Medis**, **BUKAN** alat kesehatan yang telah tervalidasi klinis untuk penggunaan pada bayi manusia secara langsung. Seluruh pengujian pemanas menggunakan beban resistif *dummy* laboratorium. Sistem **tidak** menentukan diagnosis medis atau menghitung suhu terapi secara otomatis dari berat badan/umur bayi tanpa supervisi klinis sadar.
+> **Batas penggunaan:** Proyek ini untuk pembelajaran dan pengujian laboratorium. Bukan alat medis, bukan untuk merawat bayi, dan tidak menggantikan pengawasan tenaga kesehatan. Uji aktuator hanya dengan beban dummy.
 
----
+## Isi proyek
 
-## Anggota Kelompok
+- `app/`, `routes/`, `resources/`: aplikasi Laravel dan dashboard.
+- `database/`: migrasi, factory, dan seeder.
+- `firmware/esp32-incubator/`: firmware ESP32 berbasis PlatformIO.
+- `simulator/`: simulator perangkat untuk menguji MQTT tanpa ESP32.
+- `PRD.md`: kebutuhan produk dan kontrak API.
+- `firmware/README.md`: pinout dan panduan firmware.
 
-| Nama | NIM |
-| :--- | :--- |
-| **Abyan Devadi** | H1H024049 |
-| **Muhammmad Faiz Mubarok** | H1H024051 |
-| **Hafish Athallah** | H1H024052 |
+Dashboard memakai Laravel Blade, Tailwind CSS, dan JavaScript. Perangkat dapat mengirim data lewat REST API atau MQTT. REST API tetap tersedia untuk firmware yang belum memakai MQTT.
 
----
+## Jalankan aplikasi lokal
 
-## Ikhtisar Arsitektur & Fitur Utama
+Persyaratan: PHP 8.3+, Composer, Node.js, dan npm. Untuk setup awal:
 
-Sistem dirancang dengan arsitektur *fail-safe* dan komunikasi jaringan hemat latensi:
-
-1. **Manajemen Pairing Langsung via Web Dashboard:**
-   - Admin menghubungkan perangkat inkubator dengan data bayi simulasi secara instan melalui pilihan *dropdown* di antarmuka *web dashboard*, tanpa memerlukan kode OTP numerik manual yang membebani operator.
-   - Status *paired* dan identitas bayi aktif otomatis disinkronkan ke ESP32 melalui respons telemetri untuk ditampilkan pada layar LCD 16x2 (`BAYI-001 [PAIRED]`).
-   - Riwayat penempatan dan pelepasan (*unpairing*) tercatat rapi pada tabel audit basis data.
-2. **Kendali Mandiri Lokal (*Decoupled Local PID Fail-Safe*):**
-   - Mikrokontroler ESP32 menjalankan algoritma PID lokal pada beban pemanas *dummy* secara otonom di **Core 1 (Real-time Task)** dengan *non-blocking timing* pada sensor DS18B20.
-   - Jika koneksi internet atau server VPS terputus, stabilitas suhu pemanas tetap terjaga.
-   - Jika sensor terlepas atau rusak, proteksi *hardware guard* langsung mematikan pemanas (*PWM = 0%*).
-3. **Optimasi Jaringan (*Config Piggybacking Pattern*):**
-   - Perubahan konfigurasi dari *dashboard* (seperti perubahan *setpoint* suhu atau status LED biru) dikirimkan langsung di dalam *response* telemetri (`POST /api/devices/telemetry`), memangkas *handshake* HTTPS terpisah dan latensi eksekusi.
-4. **Dashboard Real-Time Ringan (*HTTP Short Polling 2-3s*):**
-   - Antarmuka web dibangun menggunakan Laravel Blade, Tailwind CSS, dan Alpine.js yang mengambil telemetri terkini setiap 2 s.d. 3 detik melalui endpoint berkecepatan tinggi `< 30ms`, tanpa memerlukan *daemon WebSocket* tambahan di VPS.
-5. **Skalabilitas Basis Data & Time-Series Pruning:**
-   - Tabel `device_telemetries` dioptimalkan dengan *composite index* `(incubator_id, created_at DESC)`.
-   - Tersedia kebijakan otomatis pembersihan data mentah via *scheduled command* harian.
-
----
-
-## Komponen Perangkat Keras (Hardware Stack)
-
-| Komponen | Spesifikasi / Fungsi |
-| :--- | :--- |
-| **Microcontroller** | ESP32 DevKit V1 (Dual-Core 240MHz, Wi-Fi 2.4GHz) |
-| **Sensor Suhu Objek** | DS18B20 Digital Waterproof (Suhu kontak simulasi) |
-| **Sensor Lingkungan** | DHT22 / AM2302 (Suhu dan kelembapan udara inkubator) |
-| **Display Lokal** | LCD 16x2 dengan Modul I2C (Alamat `0x27` / `0x3F`) |
-| **Driver Pemanas** | Modul MOSFET Logic-Level (IRF520 / IRLZ44N) untuk switching cepat PWM |
-| **Beban Pemanas Dummy** | Resistor keramik daya / beban simulasi berdaya rendah |
-| **Driver Kipas** | Fan DC 12V / 5V dengan kontrol PWM kecepatan putar |
-| **Indikator Visual** | LED Biru simulasi fototerapi |
-
----
-
-## Tumpukan Perangkat Lunak (Software Stack)
-
-- **Backend:** Laravel (PHP 8.2+)
-- **Database:** MySQL / MariaDB (Produksi) / SQLite (Pengembangan Lokal)
-- **Frontend:** Laravel Blade, Tailwind CSS, Alpine.js, Chart.js
-- **Protokol:** HTTPS REST API (JSON payload)
-- **Firmware:** C++ / Arduino Framework / FreeRTOS Dual-Core
-
----
-
-## Dokumen Spesifikasi Lengkap
-
-Dokumentasi lengkap mengenai kebutuhan fungsional, matriks prioritas MVP (P0/P1/P2), kontrak payload REST API, dan rancangan skema 10 tabel basis data dapat dibaca pada:
-📄 **[PRD.md](file:///Users/nymytz/Documents/GITHUB/IoT-Inkubator-Komputer-Medis/PRD.md)**
-
----
-
-## Struktur Folder Proyek
-
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
 ```
-.
-├── app/                  # Controller, Model, dan Business Logic Laravel
-├── database/             # Migrasi, Factory, dan Seeder Basis Data
-├── docs/                 # Dokumentasi teknis tambahan & skema rangkaian
-├── resources/            # Blade Views, Komponen Alpine.js, dan Aset CSS
-├── routes/               # Rute Web dan REST API perangkat
-├── firmware/             # Kode sumber Firmware ESP32 (PlatformIO / Arduino)
-├── PRD.md                # Dokumen Spesifikasi Kebutuhan Produk (PRD v1.1)
-└── README.md             # Ringkasan Proyek
+
+Atur koneksi DB di `.env`. SQLite dapat dipakai untuk pengembangan lokal. Lalu jalankan:
+
+```bash
+php artisan migrate --seed
+npm install
+npm run build
+composer run dev
 ```
+
+`composer run dev` menjalankan server pengembangan yang didefinisikan proyek. Akun seed lokal memakai `admin@incubator.local` dengan kata sandi `password`. Ganti kata sandi sebelum memakai data nyata, dan jangan gunakan akun seed di server publik.
+
+## Alur MQTT
+
+Perangkat dan Laravel terhubung ke broker melalui TLS pada port `8883`:
+
+| Topik | Arah | Isi |
+| --- | --- | --- |
+| `incubator/{device_code}/telemetry` | Perangkat ke Laravel | Payload telemetri REST yang sama |
+| `incubator/{device_code}/events` | Perangkat ke Laravel | Event perangkat |
+| `incubator/{device_code}/status` | Perangkat ke Laravel | Status online/offline; status offline juga dikirim sebagai LWT |
+| `incubator/{device_code}/sync` | Laravel ke perangkat | Status pairing dan konfigurasi, mengikuti bentuk respons REST |
+
+Laravel menyimpan telemetri dan event melalui jalur ingest bersama. Telemetri berikutnya mengonfirmasi versi konfigurasi yang sudah diterapkan.
+
+## Hubungkan aplikasi lokal ke broker VPS
+
+Bagian ini mengatur **aplikasi Laravel di komputer lokal** agar terhubung ke broker di VPS. Jangan jalankan perintah Laravel ini di VPS kecuali aplikasi Laravel memang berada di sana.
+
+1. Minta operator VPS membuat kredensial khusus untuk setiap device dan memberikan sertifikat CA publik. Jangan memakai kredensial admin broker pada perangkat.
+2. Simpan CA di lokasi yang tidak masuk Git, misalnya `storage/app/private/mqtt/ca.crt`.
+3. Isi `.env` lokal:
+
+```dotenv
+MQTT_ENABLED=true
+MQTT_HOST=alamat-broker
+MQTT_PORT=8883
+MQTT_AUTH_USERNAME=laravel-service
+MQTT_AUTH_PASSWORD=isi-dari-operator
+MQTT_TLS_ENABLED=true
+MQTT_TLS_CA_FILE=/path/absolut/ke/ca.crt
+MQTT_TLS_VERIFY_PEER=true
+MQTT_TLS_VERIFY_PEER_NAME=true
+MQTT_TOPIC_PREFIX=incubator
+```
+
+`MQTT_HOST` harus cocok dengan nama DNS atau alamat IP dalam sertifikat broker. Jangan menonaktifkan verifikasi TLS.
+
+4. Jalankan subscriber di satu terminal:
+
+```bash
+php artisan mqtt:subscribe
+```
+
+Biarkan proses itu berjalan. Untuk penggunaan terus-menerus, jalankan melalui process manager di host aplikasi. Dashboard hanya menandai perangkat online setelah menerima status atau telemetri.
+
+## Uji simulator
+
+Salin `simulator/.env.example` menjadi `simulator/.env`, lalu isi kredensial device dan lokasi CA. File `.env` simulator diabaikan Git. Gunakan akun khusus device, bukan admin.
+
+Perintah berikut memakai sintaks Bash. Simulator juga membaca file `.env` sendiri, jadi tidak perlu men-source file itu. Di Fish, jalankan perintah tanpa `set -a`:
+
+```bash
+python3 -m venv simulator/.venv
+simulator/.venv/bin/pip install -r simulator/requirements.txt
+simulator/.venv/bin/python simulator/esp32_simulator.py
+```
+
+Jalankan subscriber Laravel di terminal lain. Simulator mengirim telemetri setiap lima detik, mengirim event saat tersambung, menerima sync, dan mengirim status offline saat berhenti normal. Untuk mensimulasikan gangguan sensor, set `SIMULATE_FAULT=1` di `simulator/.env`.
+
+## Siapkan broker di VPS
+
+Bagian ini untuk **operator VPS**. Broker yang sudah berjalan memakai Mosquitto 2.0.11, file konfigurasi di `/opt/mosquitto`, dan listener TLS pada port `8883`.
+
+- Konfigurasi: `/opt/mosquitto/config/mosquitto.conf`
+- ACL: `/opt/mosquitto/config/acl`
+- Password broker: `/opt/mosquitto/config/passwd`
+- Sertifikat broker: `/opt/mosquitto/certs/`
+- CA key: `/opt/mosquitto/ca/ca.key`
+- Compose: `/opt/mosquitto/compose.yaml`
+
+Listener tanpa TLS di port `1883` sudah dinonaktifkan. Pertahankan ACL per-device: username harus sama dengan `device_code`; device hanya boleh menulis `telemetry`, `events`, dan `status` miliknya, serta membaca `sync` miliknya. Laravel membutuhkan akun layanan dengan hak publish sync dan subscribe ke topik perangkat.
+
+Untuk menambahkan device, operator membuat password broker, menambahkan ACL sesuai device code, lalu memberikan kredensial dan CA publik kepada pemilik device. Simpan CA key dan password di luar repositori. Batasi akses jaringan ke port `8883` sesuai kebutuhan; jangan membuka akses admin kepada device.
+
+## Firmware ESP32
+
+Firmware berada di `firmware/esp32-incubator/` dan dibangun dengan PlatformIO. Baca `firmware/README.md` untuk wiring, konfigurasi, dan langkah build. Atur Wi-Fi, URL API, serta token perangkat di file konfigurasi lokal sebelum mengunggah firmware. Jangan commit kredensial.
+
+Firmware saat ini memakai HTTPS REST API. Simulator Python menguji alur MQTT; belum berarti firmware ESP32 sudah memakai MQTT. Gunakan beban dummy dan periksa batas fail-safe sebelum menguji rangkaian.
+
+## Pengujian
+
+```bash
+php artisan test --compact
+vendor/bin/pint --dirty --format agent
+npm run build
+```
+
+## Kontribusi dan keselamatan
+
+Jangan commit `.env`, password broker, token perangkat, CA private key, atau kredensial Wi-Fi. Jangan gunakan sistem ini untuk keputusan klinis atau perawatan pasien.

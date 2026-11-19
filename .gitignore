@@ -27,3 +27,6 @@ Homestead.yaml
 Thumbs.db
 .pio/
 firmware/tests/test_firmware_logic
+
+/simulator/.venv
+__pycache__/

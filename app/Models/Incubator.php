@@ -84,6 +84,16 @@ class Incubator extends Model
     }
 
     /**
+     * Get the newest telemetry reading for this incubator.
+     *
+     * @return HasOne<DeviceTelemetry, $this>
+     */
+    public function latestTelemetry(): HasOne
+    {
+        return $this->hasOne(DeviceTelemetry::class)->latestOfMany('created_at');
+    }
+
+    /**
      * Get all configuration versions for this incubator.
      *
      * @return HasMany<DeviceConfig, $this>

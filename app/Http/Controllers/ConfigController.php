@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
 use App\Models\Incubator;
+use App\Services\MqttPublisher;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,11 +14,14 @@ use Illuminate\Support\Facades\View as ViewFacade;
 
 class ConfigController extends Controller
 {
+    public function __construct(private readonly MqttPublisher $mqtt) {}
+
     public function edit(Incubator $incubator): View
     {
         return ViewFacade::make('incubators.config', [
             'incubator' => $incubator,
             'config' => $incubator->configs()->latest('config_version')->first(),
+            'nextVersion' => ((int) $incubator->configs()->max('config_version')) + 1,
         ]);
     }
 
@@ -55,6 +59,8 @@ class ConfigController extends Controller
                 'ip_address' => $request->ip(),
             ]);
         });
+
+        $this->mqtt->publishSync($incubator->fresh());
 
         return Redirect::route('incubators.config.edit', $incubator)->with('status', 'Configuration saved.');
     }

@@ -3,46 +3,40 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\DeviceConfig;
 use App\Models\Incubator;
+use App\Services\DeviceIngestionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Response;
-use Illuminate\Validation\Rule;
 
 class DeviceController extends Controller
 {
+    public function __construct(private readonly DeviceIngestionService $ingestion) {}
+
     public function heartbeat(Request $request): JsonResponse
     {
-        $incubator = $this->incubator($request);
-        $this->markOnline($incubator);
+        $this->ingestion->markOnline($this->incubator($request));
 
         return Response::json(['status' => 'success', 'message' => 'Heartbeat acknowledged']);
     }
 
     public function storeEvent(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'event_type' => ['required', 'string', 'max:100'],
-            'priority' => ['required', Rule::in(['info', 'warning', 'danger'])],
-            'message' => ['required', 'string', 'max:65535'],
-            'payload' => ['nullable', 'array'],
-        ]);
+        $validated = $request->validate(DeviceIngestionService::eventRules());
 
-        $this->incubator($request)->events()->create($validated);
+        $this->ingestion->recordEvent($this->incubator($request), $validated);
 
         return Response::json(['status' => 'success'], 201);
     }
 
     public function config(Request $request): JsonResponse
     {
-        $incubator = $this->incubator($request);
-        $config = $incubator->activeConfig;
+        $config = $this->incubator($request)->activeConfig;
 
         return Response::json([
             'status' => 'success',
-            'config' => $config ? $this->configPayload($config) : null,
+            'config' => $config ? $this->ingestion->configPayload($config) : null,
         ]);
     }
 
@@ -66,25 +60,5 @@ class DeviceController extends Controller
         $incubator = $request->attributes->get('incubator');
 
         return $incubator;
-    }
-
-    private function markOnline(Incubator $incubator): void
-    {
-        $incubator->update(['last_heartbeat_at' => Carbon::now(), 'status' => 'online']);
-    }
-
-    /** @return array<string, mixed> */
-    private function configPayload(DeviceConfig $config): array
-    {
-        return [
-            'version' => $config->config_version,
-            'temperature_setpoint' => (float) $config->temperature_setpoint,
-            'pid_kp' => (float) $config->pid_kp,
-            'pid_ki' => (float) $config->pid_ki,
-            'pid_kd' => (float) $config->pid_kd,
-            'fan_mode' => $config->fan_mode,
-            'blue_led_enabled' => $config->blue_led_enabled,
-            'simulation_mode' => $config->simulation_mode,
-        ];
     }
 }

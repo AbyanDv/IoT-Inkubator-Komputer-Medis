@@ -8,6 +8,7 @@ use App\Models\DevicePairing;
 use App\Models\DeviceTelemetry;
 use App\Models\Incubator;
 use App\Models\User;
+use App\Services\MqttPublisher;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -20,16 +21,20 @@ use Illuminate\View\View;
 
 class IncubatorController extends Controller
 {
+    public function __construct(private readonly MqttPublisher $mqtt) {}
+
     public function index(): View
     {
         return ViewFacade::make('incubators.index', [
-            'incubators' => Incubator::with('currentBaby')->orderBy('name')->get(),
+            'incubators' => Incubator::with(['currentBaby', 'latestTelemetry', 'activeConfig'])
+                ->orderBy('name')
+                ->get(),
         ]);
     }
 
     public function show(Incubator $incubator): View
     {
-        $incubator->load('currentBaby');
+        $incubator->load(['currentBaby', 'activeConfig']);
         $latest = $incubator->telemetries()->latest('created_at')->first();
         $history = $incubator->telemetries()->latest('created_at')->take(20)->get()->reverse()->values();
 
@@ -38,6 +43,7 @@ class IncubatorController extends Controller
 
         return ViewFacade::make('incubators.show', [
             'incubator' => $incubator,
+            'config' => $incubator->activeConfig,
             'initialTelemetry' => $latest ? [
                 'status' => 'success',
                 'telemetry' => [
@@ -46,15 +52,23 @@ class IncubatorController extends Controller
                     'humidity' => (float) $latest->humidity,
                     'heater_pwm' => $latest->heater_pwm,
                     'fan_pwm' => $latest->fan_pwm,
+                    'blue_led_status' => $latest->blue_led_status,
                     'recorded_at' => $latest->recorded_at?->toIso8601String(),
                     'sensor_status' => $latest->raw_payload['sensor_status'] ?? null,
                 ],
             ] : ['status' => 'no_data', 'telemetry' => null],
             'history' => $history->map(fn (DeviceTelemetry $item): array => [
                 'temperature' => (float) $item->temperature_object,
-                'time' => $item->recorded_at?->format('H:i:s') ?? $item->created_at?->format('H:i:s'),
+                'temperature_room' => (float) $item->temperature_room,
+                'humidity' => (float) $item->humidity,
+                'time' => $item->recorded_at?->toIso8601String() ?? $item->created_at?->toIso8601String(),
             ]),
-            'unassignedBabies' => Baby::whereDoesntHave('currentPairing')->orderBy('name')->get(),
+            'events' => $incubator->events()->latest('created_at')->take(6)->get(),
+            'unassignedBabies' => Baby::where('status', 'active')
+                ->whereDoesntHave('currentPairing')
+                ->whereDoesntHave('currentIncubator')
+                ->orderBy('name')
+                ->get(),
             'canManagePairing' => $user?->hasRole(['admin', 'super_admin']) ?? false,
         ]);
     }
@@ -104,6 +118,8 @@ class IncubatorController extends Controller
             ]);
         });
 
+        $this->mqtt->publishSync($incubator->fresh());
+
         return Redirect::route('incubators.show', $incubator)->with('status', 'Baby paired.');
     }
 
@@ -127,6 +143,8 @@ class IncubatorController extends Controller
                 'ip_address' => $request->ip(),
             ]);
         });
+
+        $this->mqtt->publishSync($incubator->fresh());
 
         return Redirect::route('incubators.show', $incubator)->with('status', 'Baby unpaired.');
     }

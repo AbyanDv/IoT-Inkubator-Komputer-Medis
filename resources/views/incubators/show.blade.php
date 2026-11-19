@@ -1,72 +1,663 @@
-{{-- @var \App\Models\Incubator $incubator --}}
-{{-- @var bool $canManagePairing --}}
-{{-- @var \Illuminate\Support\Collection<int, \App\Models\Baby> $unassignedBabies --}}
-{{-- @var array $initialTelemetry --}}
-{{-- @var array $history --}}
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ $incubator->name }} · Incubator</title></head>
-<body class="min-h-screen bg-slate-50 text-slate-900"><main class="mx-auto max-w-6xl p-4 sm:p-6 md:p-10" x-data="telemetryDashboard()" x-init="start()">
-    <a href="{{ route('incubators.index') }}" class="text-sm font-semibold text-teal-700">← All incubators</a>
-    <header class="my-6 flex flex-wrap items-start justify-between gap-4"><div><p class="text-sm font-semibold uppercase tracking-widest text-teal-700">{{ $incubator->device_code }}</p><h1 class="mt-2 text-3xl font-bold">{{ $incubator->name }}</h1><p class="mt-2 text-slate-500">{{ $incubator->currentBaby?->name ?? 'Standby' }} · {{ ucfirst($incubator->status) }}</p><p class="mt-1 text-sm text-slate-500">Last heartbeat: {{ $incubator->last_heartbeat_at?->diffForHumans() ?? '—' }}</p></div><a class="rounded-lg border border-slate-300 bg-white px-4 py-2 font-medium" href="{{ route('incubators.config.edit', $incubator) }}">Device configuration</a></header>
-    <p class="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900">Simulation prototype only. Not for clinical use or patient care.</p>
-    @if (session('status'))<p class="mb-5 rounded-lg bg-emerald-100 p-3 text-emerald-800" role="status">{{ session('status') }}</p>@endif
-    @if ($errors->any())<div class="mb-5 rounded-lg bg-rose-100 p-3 text-rose-800">{{ $errors->first() }}</div>@endif
-    <div class="grid gap-6 lg:grid-cols-[1fr_2fr]">
-        <section class="h-fit rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200"><h2 class="text-lg font-bold">Baby assignment</h2>@if ($incubator->current_baby_id)<p class="mt-3 text-sm text-slate-600">Paired with <strong>{{ $incubator->currentBaby?->name }}</strong></p>@if ($canManagePairing)<form class="mt-5" method="POST" action="{{ route('incubators.unpair', $incubator) }}">@csrf<button class="w-full rounded-lg bg-rose-600 px-4 py-2 font-semibold text-white">Unpair baby</button></form>@endif @elseif ($canManagePairing)<form class="mt-4 space-y-3" method="POST" action="{{ route('incubators.pair', $incubator) }}">@csrf<label class="block text-sm font-medium" for="baby_id">Unassigned baby</label><select id="baby_id" name="baby_id" required class="w-full rounded-lg border-slate-300"><option value="">Choose baby</option>@foreach ($unassignedBabies as $baby)<option value="{{ $baby->id }}">{{ $baby->name }} ({{ $baby->baby_code }})</option>@endforeach</select><button class="w-full rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white">Pair baby</button></form>@else<p class="mt-3 text-sm text-slate-500">No baby assigned.</p>@endif</section>
-        <section class="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200"><div class="flex items-center justify-between"><h2 class="text-lg font-bold">Live telemetry</h2><span class="text-xs text-slate-500" x-text="updatedAt"></span></div><template x-if="!telemetry"><p class="py-12 text-center text-slate-500">Waiting for first telemetry reading.</p></template><div class="mt-5 grid grid-cols-2 gap-4 xl:grid-cols-4"><template x-for="metric in metrics" :key="metric.key"><article class="rounded-xl bg-slate-50 p-4"><p class="text-sm text-slate-500" x-text="metric.label"></p><p class="mt-2 text-2xl font-bold"><span x-text="value(metric.key)"></span><span class="ml-1 text-sm font-medium text-slate-500" x-text="metric.unit"></span></p><div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-200"><div class="h-full rounded-full bg-teal-600 transition-all" :style="`width:${percentage(metric.key)}%`"></div></div></article></template></div><div class="mt-5 grid gap-3 sm:grid-cols-2"><div class="rounded-lg bg-slate-50 p-3"><h3 class="text-sm font-semibold text-slate-700">Sensor health</h3><div class="mt-2 flex flex-wrap gap-3"><div class="flex items-center gap-2"><span class="text-sm text-slate-600">DS18B20:</span><span class="rounded-full px-2.5 py-0.5 text-xs font-semibold" :class="telemetryUnavailable ? 'bg-amber-100 text-amber-800' : sensorClass('ds18b20')" x-text="telemetryUnavailable ? 'Stale' : sensorState('ds18b20')"></span></div><div class="flex items-center gap-2"><span class="text-sm text-slate-600">DHT22:</span><span class="rounded-full px-2.5 py-0.5 text-xs font-semibold" :class="telemetryUnavailable ? 'bg-amber-100 text-amber-800' : sensorClass('dht22')" x-text="telemetryUnavailable ? 'Stale' : sensorState('dht22')"></span></div></div></div><div class="rounded-lg bg-slate-50 p-3"><h3 class="text-sm font-semibold text-slate-700">Actuators</h3><p class="mt-2 text-sm text-slate-600">Blue LED: <span class="font-semibold" x-text="telemetryUnavailable ? 'Stale' : actuatorState('blue_led_status')"></span></p><p class="mt-1 text-sm text-slate-600">Heater PWM: <span class="font-semibold" x-text="telemetryUnavailable ? '—' : actuatorLevel('heater_pwm')"></span>% · Fan PWM: <span class="font-semibold" x-text="telemetryUnavailable ? '—' : actuatorLevel('fan_pwm')"></span>%</p></div></div></section>
-        <section class="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:col-span-2"><h2 class="text-lg font-bold">Temperature history</h2><div class="mt-4 h-56"><canvas x-ref="temperatureChart" role="img" aria-label="Temperature history"></canvas></div><p class="text-sm text-slate-500">Latest <span x-text="countHistory"></span> stored readings · °C</p></section>
+@extends('layouts.app')
+
+@section('title', $incubator->name)
+
+@section('content')
+    @php
+        $telemetry = $initialTelemetry['telemetry'] ?? null;
+        $sensorStatus = $telemetry['sensor_status'] ?? [];
+        $sensorLabel = function (string $key) use ($sensorStatus): string {
+            $value = $sensorStatus[$key] ?? null;
+
+            if ($value === true || in_array($value, ['OK', 'ok'], true)) {
+                return 'OK';
+            }
+
+            if ($value === false || in_array($value, ['ERROR', 'DISCONNECTED'], true)) {
+                return 'Fault';
+            }
+
+            return 'Unavailable';
+        };
+        $sensorTone = fn (string $key): string => $sensorLabel($key) === 'OK' ? 'badge-ok' : ($sensorLabel($key) === 'Fault' ? 'badge-danger' : 'badge-neutral');
+        $setpoint = $config ? (float) $config->temperature_setpoint : null;
+        $heaterPercent = $telemetry ? (int) round($telemetry['heater_pwm'] / 255 * 100) : null;
+        $fanPercent = $telemetry ? (int) round($telemetry['fan_pwm'] / 255 * 100) : null;
+        $recentReadings = $history->reverse()->take(8);
+        $telemetryEndpoint = route('api.incubators.live-telemetry', $incubator);
+        $initialState = [
+            'telemetry' => $telemetry,
+            'history' => $history,
+            'sensorStatus' => $sensorStatus,
+            'setpoint' => $setpoint,
+            'endpoint' => $telemetryEndpoint,
+        ];
+    @endphp
+
+    <div class="space-y-6" data-dashboard>
+        <div class="reveal flex flex-wrap items-start justify-between gap-5">
+            <div class="min-w-0">
+                <a href="{{ route('incubators.index') }}" class="back-link">
+                    <x-icon name="arrow-left" class="size-3.5" />
+                    All incubators
+                </a>
+                <div class="mt-4 flex flex-wrap items-center gap-3">
+                    <h1 class="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{{ $incubator->name }}</h1>
+                    <x-status-badge data-device-status :status="$incubator->status" />
+                </div>
+                <p class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-soft">
+                    <span class="font-mono">{{ $incubator->device_code }}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>Firmware {{ $incubator->firmware_version ?? 'unknown' }}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>Last heartbeat <span data-last-heartbeat class="tabular-nums">{{ $incubator->last_heartbeat_at?->diffForHumans() ?? 'Never' }}</span></span>
+                </p>
+            </div>
+
+            @can('manage-config')
+                <a href="{{ route('incubators.config.edit', $incubator) }}" class="btn btn-secondary">
+                    <x-icon name="sliders" class="size-4" />
+                    Device configuration
+                </a>
+            @endcan
+        </div>
+
+        <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <div class="space-y-6">
+                <section class="card reveal p-5 sm:p-6" aria-labelledby="live-telemetry-heading">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <p class="eyebrow">Telemetry</p>
+                            <h2 id="live-telemetry-heading" class="mt-1 text-lg font-semibold">Live telemetry</h2>
+                        </div>
+                        <p class="flex items-center gap-2 text-xs font-semibold text-ink-soft">
+                            <span data-connection-dot class="status-dot bg-accent" aria-hidden="true"></span>
+                            <span data-connection role="status">Live</span>
+                            <span aria-hidden="true">·</span>
+                            <time data-updated-at class="tabular-nums">{{ ($telemetry['recorded_at'] ?? null) ? \Illuminate\Support\Carbon::parse($telemetry['recorded_at'])->format('H:i:s') : 'Waiting' }}</time>
+                        </p>
+                    </div>
+
+                    <div class="mt-6 grid gap-4 sm:grid-cols-3">
+                        <div class="rounded-xl border border-line bg-bone/60 p-4">
+                            <p class="flex items-center gap-1.5 eyebrow">
+                                <x-icon name="thermometer" class="size-3.5" />
+                                Object temp.
+                            </p>
+                            <p class="mt-3 flex items-baseline gap-1">
+                                <span class="reading text-4xl font-semibold tracking-[-0.05em]" data-reading="temperature_object">{{ $telemetry ? number_format($telemetry['temperature_object'], 1) : '—' }}</span>
+                                <span class="text-sm font-medium text-ink-soft">°C</span>
+                            </p>
+                            <p class="mt-1 text-xs text-ink-soft">Contact simulation · DS18B20</p>
+                        </div>
+
+                        <div class="rounded-xl border border-line bg-bone/60 p-4">
+                            <p class="flex items-center gap-1.5 eyebrow">
+                                <x-icon name="thermometer" class="size-3.5" />
+                                Room temp.
+                            </p>
+                            <p class="mt-3 flex items-baseline gap-1">
+                                <span class="reading text-4xl font-semibold tracking-[-0.05em]" data-reading="temperature_room">{{ $telemetry ? number_format($telemetry['temperature_room'], 1) : '—' }}</span>
+                                <span class="text-sm font-medium text-ink-soft">°C</span>
+                            </p>
+                            <p class="mt-1 text-xs text-ink-soft">Incubator air · DHT22</p>
+                        </div>
+
+                        <div class="rounded-xl border border-line bg-bone/60 p-4">
+                            <p class="flex items-center gap-1.5 eyebrow">
+                                <x-icon name="droplets" class="size-3.5" />
+                                Humidity
+                            </p>
+                            <p class="mt-3 flex items-baseline gap-1">
+                                <span class="reading text-4xl font-semibold tracking-[-0.05em]" data-reading="humidity">{{ $telemetry ? number_format($telemetry['humidity'], 1) : '—' }}</span>
+                                <span class="text-sm font-medium text-ink-soft">%</span>
+                            </p>
+                            <p class="mt-1 text-xs text-ink-soft">Relative humidity · DHT22</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-soft">
+                        @if ($config)
+                            <span class="flex items-center gap-1.5">
+                                <span class="size-1.5 rounded-full bg-warn" aria-hidden="true"></span>
+                                Setpoint <strong class="font-semibold text-ink">{{ number_format($setpoint, 1) }} °C</strong>
+                            </span>
+                            <span>Config v{{ $config->config_version }}</span>
+                        @else
+                            <span>No active configuration version.</span>
+                        @endif
+                        <span>Updates every 2.5 s</span>
+                    </div>
+                </section>
+
+                <section class="card reveal p-5 sm:p-6" aria-labelledby="temperature-trend-heading">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <p class="eyebrow">Thermal trend</p>
+                            <h2 id="temperature-trend-heading" class="mt-1 text-lg font-semibold">Object temperature</h2>
+                        </div>
+                        <p class="text-xs text-ink-soft">Last {{ $history->count() }} readings · °C</p>
+                    </div>
+
+                    <div class="relative mt-4">
+                        <svg
+                            data-chart
+                            viewBox="0 0 600 190"
+                            class="h-52 w-full"
+                            role="img"
+                            aria-label="Object temperature history for {{ $incubator->name }}"
+                        ></svg>
+                        <noscript>
+                            <p class="py-10 text-center text-sm text-ink-soft">Enable JavaScript to see the live trend. Recent values are listed below.</p>
+                        </noscript>
+                    </div>
+
+                    <details class="mt-3">
+                        <summary class="summary-marker">Latest readings</summary>
+                        <div class="mt-3 overflow-x-auto">
+                            <table class="table-base min-w-[30rem]">
+                                <caption class="sr-only">Recent telemetry readings</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Time</th>
+                                        <th scope="col">Object</th>
+                                        <th scope="col">Room</th>
+                                        <th scope="col">Humidity</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @forelse ($recentReadings as $point)
+                                        <tr>
+                                            <td class="font-mono text-xs text-ink-soft">{{ $point['time'] ? \Illuminate\Support\Carbon::parse($point['time'])->format('H:i:s') : '—' }}</td>
+                                            <td class="tabular-nums">{{ number_format($point['temperature'], 2) }} °C</td>
+                                            <td class="tabular-nums text-ink-soft">{{ number_format($point['temperature_room'], 2) }} °C</td>
+                                            <td class="tabular-nums text-ink-soft">{{ number_format($point['humidity'], 2) }} %</td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="4" class="py-8 text-center text-ink-soft">No telemetry readings yet.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                </section>
+
+                <div class="grid gap-6 sm:grid-cols-2">
+                    <section class="card reveal p-5 sm:p-6" aria-labelledby="actuators-heading">
+                        <p class="eyebrow">Actuators</p>
+                        <h2 id="actuators-heading" class="mt-1 text-lg font-semibold">Heater & circulation</h2>
+
+                        <div class="mt-5 space-y-5">
+                            <div>
+                                <div class="flex items-baseline justify-between gap-3">
+                                    <span class="flex items-center gap-2 text-sm font-medium">
+                                        <x-icon name="flame" class="size-4 text-ink-soft" />
+                                        Heater
+                                    </span>
+                                    <span class="text-sm tabular-nums text-ink-soft">
+                                        <span data-reading="heater_pwm" class="font-semibold text-ink">{{ $telemetry['heater_pwm'] ?? '—' }}</span> PWM
+                                    </span>
+                                </div>
+                                <div class="meter-track mt-2" aria-hidden="true">
+                                    <div data-meter="heater" class="meter-fill" style="width: {{ $heaterPercent ?? 0 }}%"></div>
+                                </div>
+                                <p class="mt-1 text-xs text-ink-soft"><span data-heater-percent class="tabular-nums">{{ $heaterPercent ?? '—' }}</span>% duty cycle</p>
+                            </div>
+
+                            <div>
+                                <div class="flex items-baseline justify-between gap-3">
+                                    <span class="flex items-center gap-2 text-sm font-medium">
+                                        <x-icon name="wind" class="size-4 text-ink-soft" />
+                                        Fan
+                                    </span>
+                                    <span class="text-sm tabular-nums text-ink-soft">
+                                        <span data-reading="fan_pwm" class="font-semibold text-ink">{{ $telemetry['fan_pwm'] ?? '—' }}</span> PWM
+                                    </span>
+                                </div>
+                                <div class="meter-track mt-2" aria-hidden="true">
+                                    <div data-meter="fan" class="meter-fill" style="width: {{ $fanPercent ?? 0 }}%"></div>
+                                </div>
+                                <p class="mt-1 text-xs text-ink-soft"><span data-fan-percent class="tabular-nums">{{ $fanPercent ?? '—' }}</span>% output</p>
+                            </div>
+
+                            <div class="flex items-center justify-between gap-3 rounded-xl border border-line bg-bone/60 px-4 py-3">
+                                <span class="flex items-center gap-2 text-sm font-medium">
+                                    <x-icon name="bulb" class="size-4 text-ink-soft" />
+                                    Blue light
+                                </span>
+                                <span data-led-state class="badge {{ ($telemetry['blue_led_status'] ?? false) ? 'badge-ok' : 'badge-neutral' }}">
+                                    <span class="status-dot" aria-hidden="true"></span>
+                                    <span data-led-text>{{ ($telemetry['blue_led_status'] ?? false) ? 'On' : 'Off' }}</span>
+                                </span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="card reveal p-5 sm:p-6" aria-labelledby="sensor-health-heading">
+                        <p class="eyebrow">Sensor health</p>
+                        <h2 id="sensor-health-heading" class="mt-1 text-lg font-semibold">Probe status</h2>
+
+                        <ul class="mt-5 divide-y divide-line">
+                            <li class="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                                <div>
+                                    <p class="text-sm font-medium">DS18B20</p>
+                                    <p class="mt-0.5 text-xs text-ink-soft">Object contact probe</p>
+                                </div>
+                                <span data-sensor="ds18b20" class="badge {{ $sensorTone('ds18b20') }}">
+                                    <span class="status-dot" aria-hidden="true"></span>
+                                    <span data-sensor-text>{{ $sensorLabel('ds18b20') }}</span>
+                                </span>
+                            </li>
+                            <li class="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                                <div>
+                                    <p class="text-sm font-medium">DHT22</p>
+                                    <p class="mt-0.5 text-xs text-ink-soft">Air temperature and humidity</p>
+                                </div>
+                                <span data-sensor="dht22" class="badge {{ $sensorTone('dht22') }}">
+                                    <span class="status-dot" aria-hidden="true"></span>
+                                    <span data-sensor-text>{{ $sensorLabel('dht22') }}</span>
+                                </span>
+                            </li>
+                        </ul>
+
+                        <p class="mt-5 flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-xs leading-relaxed text-warn">
+                            <x-icon name="alert" class="mt-px size-3.5" />
+                            <span>The ESP32 cuts heater PWM to 0% locally when a probe faults. The web view only reports that state.</span>
+                        </p>
+                    </section>
+                </div>
+            </div>
+
+            <aside class="space-y-6">
+                <section class="card reveal p-5" aria-labelledby="baby-assignment-heading">
+                    <div class="flex items-center justify-between gap-3">
+                        <h2 id="baby-assignment-heading" class="text-lg font-semibold">Baby assignment</h2>
+                        <x-status-badge :status="$incubator->currentBaby ? 'paired' : 'unpaired'" />
+                    </div>
+
+                    @if ($incubator->currentBaby)
+                        <div class="mt-4 flex items-center gap-3">
+                            <span class="grid size-11 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
+                                {{ mb_strtoupper(mb_substr($incubator->currentBaby->name, 0, 2)) }}
+                            </span>
+                            <div class="min-w-0">
+                                <a href="{{ route('babies.show', $incubator->currentBaby) }}" class="block truncate font-semibold text-ink">{{ $incubator->currentBaby->name }}</a>
+                                <p class="mt-0.5 font-mono text-xs text-ink-soft">{{ $incubator->currentBaby->baby_code }}</p>
+                            </div>
+                        </div>
+
+                        <dl class="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl bg-bone/60 p-3 text-sm">
+                            <div>
+                                <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Gestation</dt>
+                                <dd class="mt-1 tabular-nums">{{ $incubator->currentBaby->gestational_age_weeks }} weeks</dd>
+                            </div>
+                            <div>
+                                <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Weight</dt>
+                                <dd class="mt-1 tabular-nums">{{ number_format($incubator->currentBaby->weight_grams) }} g</dd>
+                            </div>
+                        </dl>
+
+                        @can('manage-pairing')
+                            <button
+                                type="button"
+                                class="btn btn-danger mt-4 w-full"
+                                command="show-modal"
+                                commandfor="unpair-dialog-{{ $incubator->id }}"
+                            >
+                                <x-icon name="unlink" class="size-4" />
+                                Unpair baby
+                            </button>
+
+                            <dialog id="unpair-dialog-{{ $incubator->id }}" aria-labelledby="unpair-title-{{ $incubator->id }}">
+                                <div class="dialog-card">
+                                    <p class="eyebrow">Assignment</p>
+                                    <h2 id="unpair-title-{{ $incubator->id }}" class="mt-2 text-xl font-semibold">Unpair this baby?</h2>
+                                    <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+                                        {{ $incubator->currentBaby->name }} will be released from {{ $incubator->name }}. The device returns to standby on its next telemetry response.
+                                    </p>
+                                    <form method="POST" action="{{ route('incubators.unpair', $incubator) }}" class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                        @csrf
+                                        <button type="button" class="btn btn-secondary" command="close" commandfor="unpair-dialog-{{ $incubator->id }}" autofocus>Keep paired</button>
+                                        <button type="submit" class="btn btn-danger">Unpair baby</button>
+                                    </form>
+                                </div>
+                            </dialog>
+                        @endcan
+                    @else
+                        @if ($canManagePairing)
+                            @if ($unassignedBabies->isNotEmpty())
+                                <form method="POST" action="{{ route('incubators.pair', $incubator) }}" class="mt-4 space-y-3">
+                                    @csrf
+                                    <x-field name="baby_id" label="Unassigned baby" type="select" required>
+                                        <option value="">Choose a baby</option>
+                                        @foreach ($unassignedBabies as $baby)
+                                            <option value="{{ $baby->id }}" @selected((string) old('baby_id') === (string) $baby->id)>
+                                                {{ $baby->name }} · {{ $baby->baby_code }}
+                                            </option>
+                                        @endforeach
+                                    </x-field>
+                                    <button type="submit" class="btn btn-primary w-full">
+                                        <x-icon name="link" class="size-4" />
+                                        Pair baby
+                                    </button>
+                                </form>
+                            @else
+                                <div class="mt-4 rounded-xl border border-dashed border-line-strong p-4 text-sm leading-relaxed text-ink-soft">
+                                    No active baby is waiting for an incubator.
+                                    <a href="{{ route('babies.index') }}#register-baby" class="font-semibold text-accent">Register one</a>.
+                                </div>
+                            @endif
+                        @else
+                            <p class="mt-4 text-sm leading-relaxed text-ink-soft">No baby assigned. Only admins and super admins can pair a device.</p>
+                        @endif
+                    @endif
+                </section>
+
+                <section class="card reveal p-5" aria-labelledby="device-configuration-heading">
+                    <div class="flex items-center justify-between gap-3">
+                        <h2 id="device-configuration-heading" class="text-lg font-semibold">Device configuration</h2>
+                        @if ($config)
+                            <span class="badge badge-neutral">v{{ $config->config_version }}</span>
+                        @endif
+                    </div>
+
+                    @if ($config)
+                        <dl class="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+                            <div>
+                                <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Setpoint</dt>
+                                <dd class="mt-1 font-semibold tabular-nums">{{ number_format($setpoint, 1) }} °C</dd>
+                            </div>
+                            <div>
+                                <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Fan mode</dt>
+                                <dd class="mt-1 font-semibold capitalize">{{ $config->fan_mode === 'pwm' ? 'Fixed PWM' : 'Auto' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">PID gains</dt>
+                                <dd class="mt-1 font-mono text-xs tabular-nums">{{ number_format((float) $config->pid_kp, 2) }} / {{ number_format((float) $config->pid_ki, 2) }} / {{ number_format((float) $config->pid_kd, 2) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Blue light</dt>
+                                <dd class="mt-1 font-semibold">{{ $config->blue_led_enabled ? 'Enabled' : 'Disabled' }}</dd>
+                            </div>
+                        </dl>
+
+                        <div class="mt-4 flex items-center justify-between gap-3 border-t border-line pt-3 text-xs text-ink-soft">
+                            <span class="flex items-center gap-1.5">
+                                <span class="status-dot {{ $config->applied_at ? 'bg-accent' : 'bg-warn' }}" aria-hidden="true"></span>
+                                {{ $config->applied_at ? 'Applied by device' : 'Awaiting device ACK' }}
+                            </span>
+                            <span class="tabular-nums">{{ ($config->applied_at ?? $config->updated_at)?->diffForHumans() }}</span>
+                        </div>
+
+                        @can('manage-config')
+                            <a href="{{ route('incubators.config.edit', $incubator) }}" class="btn btn-secondary mt-4 w-full">
+                                Edit configuration
+                            </a>
+                        @endcan
+                    @else
+                        <p class="mt-4 text-sm leading-relaxed text-ink-soft">No configuration version exists for this device yet.</p>
+                        @can('manage-config')
+                            <a href="{{ route('incubators.config.edit', $incubator) }}" class="btn btn-secondary mt-4 w-full">Create configuration</a>
+                        @endcan
+                    @endif
+                </section>
+
+                <section class="card reveal p-5" aria-labelledby="device-events-heading">
+                    <div class="flex items-center justify-between gap-3">
+                        <h2 id="device-events-heading" class="text-lg font-semibold">Device events</h2>
+                        <span class="text-xs text-ink-soft">{{ $events->count() }}</span>
+                    </div>
+
+                    @if ($events->isEmpty())
+                        <p class="mt-4 text-sm leading-relaxed text-ink-soft">No hardware events recorded.</p>
+                    @else
+                        <ul class="mt-3 divide-y divide-line">
+                            @foreach ($events as $event)
+                                <li class="py-3 first:pt-1 last:pb-0">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <p class="text-sm font-medium leading-snug">{{ $event->message }}</p>
+                                        <x-status-badge :status="$event->priority" :label="ucfirst($event->priority)" />
+                                    </div>
+                                    <p class="mt-1 text-xs text-ink-soft">
+                                        <span class="font-mono">{{ $event->event_type }}</span>
+                                        <span aria-hidden="true">·</span>
+                                        <span class="tabular-nums">{{ $event->created_at?->diffForHumans() ?? '—' }}</span>
+                                    </p>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </section>
+            </aside>
+        </div>
     </div>
-</main>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<script>
-function telemetryDashboard() {
-    return {
-        telemetry: @json($initialTelemetry['telemetry']),
-        history: @json($history),
-        updatedAt: 'Connecting…',
-        sensorStatus: @json($initialTelemetry['telemetry']['sensor_status'] ?? null),
-        telemetryUnavailable: false,
-        metrics: [{key:'temperature_object',label:'Object temperature',unit:'°C'},{key:'humidity',label:'Humidity',unit:'%'},{key:'heater_pwm',label:'Heater PWM',unit:'%'},{key:'fan_pwm',label:'Fan PWM',unit:'%'}],
-        get countHistory() { return this.history.length; },
-        chart: null,
-        updateChart() {
-            if (typeof Chart === 'undefined' || !this.$refs.temperatureChart) return;
-            if (!this.chart) {
-                this.chart = new Chart(this.$refs.temperatureChart, {type:'line',data:{labels:[],datasets:[{label:'Object temperature (°C)',data:[],borderColor:'#0f766e',tension:0.25}]},options:{responsive:true,maintainAspectRatio:false,animation:false}});
-            }
-            if (this.chart) {
-                this.chart.data.labels = this.history.map(point => point.time);
-                this.chart.data.datasets[0].data = this.history.map(point => point.temperature);
-                this.chart.update();
-            }
-        },
-        sensorState(key) { return this.sensorStatus?.[key] === true ? 'OK' : (this.sensorStatus?.[key] === false ? 'FAULT' : 'Unavailable'); },
-        actuatorState(key) { return this.telemetry?.[key] == null ? 'Unavailable' : (this.telemetry[key] ? 'On' : 'Off'); },
-        actuatorLevel(key) { return this.telemetry?.[key] ?? '—'; },
-        sensorClass(key) { return this.sensorStatus?.[key] === true ? 'bg-emerald-100 text-emerald-800' : (this.sensorStatus?.[key] === false ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-600'); },
-        value(key) { return this.telemetry?.[key] ?? '—'; },
-        percentage(key) { const number = Number(this.telemetry?.[key] ?? 0); return Math.max(0, Math.min(100, number)); },
-        async poll() {
-            try {
-                const response = await fetch(@js(route('api.incubators.live-telemetry', $incubator)), {headers:{Accept:'application/json'}, credentials:'same-origin'});
-                if (!response.ok) throw new Error('Telemetry request failed');
-                const data = await response.json();
-                this.telemetryUnavailable = false;
-                this.telemetry = data.telemetry;
-                this.sensorStatus = data.telemetry?.sensor_status ?? null;
-                const recordedAt = data.telemetry?.recorded_at;
-                if (data.telemetry?.temperature_object != null && recordedAt && !this.history.some(point => point.time === recordedAt)) {
-                    this.history.push({temperature:Number(data.telemetry.temperature_object),time:recordedAt});
-                    this.history = this.history.slice(-20);
-                }
-                this.updateChart();
-                this.updatedAt = new Date().toLocaleTimeString();
-            } catch { this.telemetryUnavailable = true; this.updatedAt = 'Telemetry unavailable'; }
-        },
-        start() { this.updatedAt = new Date().toLocaleTimeString(); this.updateChart(); this.poll(); setInterval(() => this.poll(), 2500); }
-    };
-}
-</script>
-@vite(['resources/css/app.css', 'resources/js/app.js'])
-</body></html>
+
+    <script>
+        (() => {
+            const root = document.querySelector('[data-dashboard]');
+            if (!root) return;
+
+            const initialState = @json($initialState);
+
+            const dashboard = {
+                telemetry: initialState.telemetry,
+                history: initialState.history ?? [],
+                sensorStatus: initialState.sensorStatus,
+                telemetryUnavailable: false,
+                deviceStatus: @json($incubator->status),
+                updatedAt: '',
+
+                start() {
+                    this.render();
+                    this.poll();
+                    setInterval(() => this.poll(), 2500);
+                },
+
+                async poll() {
+                    try {
+                        const response = await fetch(initialState.endpoint, {
+                            headers: { Accept: 'application/json' },
+                            credentials: 'same-origin',
+                        });
+                        if (!response.ok) throw new Error('Telemetry request failed');
+                        const data = await response.json();
+                        this.telemetryUnavailable = false;
+                        this.telemetry = data.telemetry;
+                        this.sensorStatus = data.telemetry?.sensor_status ?? null;
+                        if (data.incubator?.status) this.deviceStatus = data.incubator.status;
+
+                        const recordedAt = data.telemetry?.recorded_at;
+                        if (recordedAt && !this.history.some((point) => point.time === recordedAt)) {
+                            this.history.push({ temperature: Number(data.telemetry.temperature_object), time: recordedAt });
+                            this.history = this.history.slice(-20);
+                        }
+
+                        this.updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    } catch { this.telemetryUnavailable = true; this.updatedAt = 'Telemetry unavailable'; }
+                    this.render();
+                },
+
+                render() {
+                    root.classList.toggle('is-stale', this.telemetryUnavailable);
+                    this.renderConnection();
+                    this.renderStatus();
+                    this.renderReadings();
+                    this.renderSensors();
+                    this.renderChart();
+                },
+
+                renderConnection() {
+                    const connection = root.querySelector('[data-connection]');
+                    const dot = root.querySelector('[data-connection-dot]');
+                    const updated = root.querySelector('[data-updated-at]');
+
+                    if (connection) connection.textContent = this.telemetryUnavailable ? 'Stale' : 'Live';
+                    if (dot) dot.classList.toggle('bg-accent', !this.telemetryUnavailable), dot.classList.toggle('bg-warn', this.telemetryUnavailable);
+                    if (updated) updated.textContent = this.updatedAt || updated.textContent;
+                },
+
+                renderStatus() {
+                    const badge = root.querySelector('[data-device-status]');
+                    if (!badge) return;
+
+                    const online = this.deviceStatus === 'online';
+                    badge.classList.toggle('badge-ok', online);
+                    badge.classList.toggle('badge-neutral', !online);
+                    badge.querySelector('[data-status-text]').textContent = online ? 'Online' : this.title(this.deviceStatus);
+                },
+
+                renderReadings() {
+                    const values = {
+                        temperature_object: [this.telemetry?.temperature_object, 1],
+                        temperature_room: [this.telemetry?.temperature_room, 1],
+                        humidity: [this.telemetry?.humidity, 1],
+                        heater_pwm: [this.telemetry?.heater_pwm, 0],
+                        fan_pwm: [this.telemetry?.fan_pwm, 0],
+                    };
+
+                    for (const [key, [value, digits]] of Object.entries(values)) {
+                        const element = root.querySelector(`[data-reading="${key}"]`);
+                        if (!element) continue;
+                        const next = this.number(value, digits);
+                        if (element.textContent !== next) {
+                            element.textContent = next;
+                            element.classList.remove('is-fresh');
+                            void element.offsetWidth;
+                            element.classList.add('is-fresh');
+                            window.setTimeout(() => element.classList.remove('is-fresh'), 900);
+                        }
+                    }
+
+                    this.renderMeter('heater', this.telemetry?.heater_pwm);
+                    this.renderMeter('fan', this.telemetry?.fan_pwm);
+
+                    const led = root.querySelector('[data-led-state]');
+                    const ledText = root.querySelector('[data-led-text]');
+                    if (led && ledText) {
+                        const on = Boolean(this.telemetry?.blue_led_status);
+                        led.classList.toggle('badge-ok', on);
+                        led.classList.toggle('badge-neutral', !on);
+                        ledText.textContent = on ? 'On' : 'Off';
+                    }
+                },
+
+                renderMeter(key, pwm) {
+                    const percent = this.percent(pwm);
+                    const bar = root.querySelector(`[data-meter="${key}"]`);
+                    const label = root.querySelector(`[data-${key}-percent]`);
+                    if (bar) bar.style.width = `${percent ?? 0}%`;
+                    if (label) label.textContent = percent ?? '—';
+                },
+
+                renderSensors() {
+                    for (const key of ['ds18b20', 'dht22']) {
+                        const badge = root.querySelector(`[data-sensor="${key}"]`);
+                        if (!badge) continue;
+
+                        const text = badge.querySelector('[data-sensor-text]');
+                        const state = this.telemetryUnavailable ? 'Stale' : this.sensorState(key);
+                        badge.classList.toggle('badge-ok', state === 'OK');
+                        badge.classList.toggle('badge-danger', state === 'Fault');
+                        badge.classList.toggle('badge-warn', state === 'Stale');
+                        badge.classList.toggle('badge-neutral', state === 'Unavailable');
+                        text.textContent = state;
+                    }
+                },
+
+                renderChart() {
+                    const svg = root.querySelector('[data-chart]');
+                    if (!svg) return;
+
+                    const points = this.history
+                        .filter((point) => Number.isFinite(Number(point.temperature)))
+                        .map((point) => ({ value: Number(point.temperature), time: point.time }));
+
+                    const width = 600;
+                    const height = 190;
+                    const pad = { top: 18, right: 14, bottom: 24, left: 40 };
+                    const innerWidth = width - pad.left - pad.right;
+                    const innerHeight = height - pad.top - pad.bottom;
+
+                    if (!points.length) {
+                        svg.innerHTML = `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" class="chart-label">Waiting for telemetry</text>`;
+                        return;
+                    }
+
+                    const setpoint = Number(initialState.setpoint);
+                    const values = points.map((point) => point.value).concat(Number.isFinite(setpoint) ? [setpoint] : []);
+                    let min = Math.min(...values);
+                    let max = Math.max(...values);
+                    if (max - min < 1) {
+                        min -= 0.5;
+                        max += 0.5;
+                    }
+                    const padding = Math.max((max - min) * 0.12, 0.4);
+                    min -= padding;
+                    max += padding;
+
+                    const x = (index) => points.length === 1
+                        ? pad.left + innerWidth / 2
+                        : pad.left + (index / (points.length - 1)) * innerWidth;
+                    const y = (value) => pad.top + ((max - value) / (max - min)) * innerHeight;
+                    const line = points.map((point, index) => `${x(index).toFixed(1)},${y(point.value).toFixed(1)}`).join(' ');
+                    const area = `${pad.left},${pad.top + innerHeight} ${line} ${pad.left + innerWidth},${pad.top + innerHeight}`;
+                    const last = points[points.length - 1];
+
+                    let grid = '';
+                    for (let step = 0; step <= 3; step++) {
+                        const value = min + ((max - min) / 3) * step;
+                        const yLine = y(value).toFixed(1);
+                        grid += `<line class="chart-grid" x1="${pad.left}" y1="${yLine}" x2="${width - pad.right}" y2="${yLine}" />`;
+                        grid += `<text class="chart-label" x="${pad.left - 8}" y="${Number(yLine) + 3}" text-anchor="end">${value.toFixed(1)}</text>`;
+                    }
+
+                    const setpointLine = Number.isFinite(setpoint)
+                        ? `<line class="chart-setpoint" x1="${pad.left}" y1="${y(setpoint).toFixed(1)}" x2="${width - pad.right}" y2="${y(setpoint).toFixed(1)}" />
+                           <text class="chart-setpoint-label" x="${width - pad.right}" y="${(y(setpoint) - 5).toFixed(1)}" text-anchor="end">setpoint</text>`
+                        : '';
+
+                    const timeLabel = (value, anchor) => {
+                        const date = new Date(value);
+                        if (Number.isNaN(date.getTime())) return '';
+                        return `<text class="chart-label" x="${anchor}" y="${height - 6}" text-anchor="${anchor < width / 2 ? 'start' : 'end'}">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</text>`;
+                    };
+
+                    svg.innerHTML = `
+                        ${grid}
+                        ${setpointLine}
+                        <polygon class="chart-area" points="${area}" />
+                        <polyline class="chart-line" points="${line}" />
+                        <circle class="chart-dot" cx="${x(points.length - 1).toFixed(1)}" cy="${y(last.value).toFixed(1)}" r="3.5" />
+                        ${timeLabel(points[0].time, pad.left)}
+                        ${timeLabel(last.time, width - pad.right)}
+                    `;
+                },
+
+                sensorState(key) {
+                    const value = this.sensorStatus?.[key];
+                    if (value === true || value === 'OK' || value === 'ok') return 'OK';
+                    if (value === false || value === 'ERROR' || value === 'DISCONNECTED') return 'Fault';
+                    return 'Unavailable';
+                },
+
+                number(value, digits) {
+                    const numeric = Number(value);
+                    return value === null || value === undefined || Number.isNaN(numeric) ? '—' : numeric.toFixed(digits);
+                },
+
+                percent(pwm) {
+                    const numeric = Number(pwm);
+                    return pwm === null || pwm === undefined || Number.isNaN(numeric) ? null : Math.round((numeric / 255) * 100);
+                },
+
+                title(value) {
+                    return value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Unknown';
+                },
+            };
+
+            dashboard.start();
+        })();
+    </script>
+@endsection

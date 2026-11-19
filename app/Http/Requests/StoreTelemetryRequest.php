@@ -21,6 +21,16 @@ class StoreTelemetryRequest extends FormRequest
      */
     public function rules(): array
     {
+        return self::payloadRules();
+    }
+
+    /**
+     * Shared rules for HTTP and MQTT telemetry ingestion.
+     *
+     * @return array<string, array<int, string>>
+     */
+    public static function payloadRules(): array
+    {
         return [
             'device_code' => ['required', 'string', 'max:20'],
             'applied_config_version' => ['required', 'integer', 'min:0'],
