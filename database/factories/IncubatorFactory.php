@@ -28,7 +28,6 @@ class IncubatorFactory extends Factory
             'status' => 'offline',
             'is_active' => true,
             'last_heartbeat_at' => null,
-            'last_config_version' => 1,
             'current_baby_id' => null,
         ];
     }

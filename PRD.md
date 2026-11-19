@@ -2,13 +2,13 @@
 
 ## Smart Infant Incubator – IoT Monitoring and Management System
 
-**Versi:** 1.2 (Penyederhanaan Alur Pairing Direct Dashboard - Non-OTP)\
+**Versi:** 1.3 (Relay 4 Channel, MQTT, dan Penyederhanaan Konfigurasi)\
 **Status:** Approved Draft – Siap Implementasi\
 **Platform:** Web Application + IoT Microcontroller (ESP32)\
 **Backend Framework:** Laravel (PHP 8.2+)\
 **Database:** MySQL / MariaDB / SQLite (Dev)\
 **Frontend:** Blade + Tailwind CSS + Alpine.js\
-**Hardware:** ESP32 DevKit V1, Sensor DS18B20, DHT22, LCD I2C 16x2, MOSFET Driver PWM, Dummy Heater, Fan PWM, Blue LED\
+**Hardware:** ESP32 DevKit V1, Sensor DS18B20, DHT22, LCD I2C 16x2, Modul Relay 4 Channel, Dummy Heater 2 Channel, Fan Sirkulasi, Blue Light\
 **Target Deployment:** Linux VPS (Nginx + HTTPS)
 
 ---
@@ -21,9 +21,10 @@ Inkubator bayi merupakan perangkat biomedis kritis yang berfungsi mempertahankan
 
 Proyek **Smart Infant Incubator** dikembangkan sebagai **prototipe riset dan pembelajaran IoT pada mata kuliah Komputer Medis**. Sistem mengintegrasikan mikrokontroler ESP32 dengan backend berbasis Laravel untuk:
 - Memantau kondisi suhu objek (simulasi kontak tubuh) dan lingkungan inkubator secara berkala.
-- Mengimplementasikan kendali umpan balik pemanas (*dummy heater*) menggunakan algoritma PID lokal berbasis modulasi lebar pulsa (*PWM*) via driver MOSFET.
-- Mengatur sirkulasi udara melalui kipas DC berbasis kendali PWM.
-- Menyediakan simulasi visual lampu fototerapi (LED biru).
+- Mengimplementasikan kendali umpan balik dua pemanas (*dummy heater*) menggunakan algoritma PID lokal dan staging relay.
+- Mengatur sirkulasi udara melalui relay fan.
+- Menyediakan simulasi visual lampu fototerapi (blue light).
+- Menyediakan saklar uji on/off untuk empat relay dari dashboard, dengan fallback otomatis setelah 60 detik tanpa kontak server.
 - Menyediakan web dashboard terpusat untuk administrasi bayi simulasi, penghubungan perangkat langsung (*direct dashboard pairing*), pemantauan telemetri real-time, visualisasi grafik historis, serta pengaturan setpoint jarak jauh.
 
 ## 1.2 Batasan Etika & Keselamatan Medis (*Safety Boundary*)
@@ -43,7 +44,7 @@ Aplikasi menerapkan sistem otorisasi berbasis peran untuk memastikan integritas 
 | Role | Deskripsi & Hak Akses |
 | :--- | :--- |
 | **Super Admin** | Akses penuh sistem: manajemen akun pengguna, manajemen master data perangkat, audit trail log, konfigurasi sistem global, pairing override. |
-| **Admin** | Manajemen data bayi simulasi, registrasi & pairing perangkat inkubator, pengaturan parameter simulasi (setpoint suhu, mode fan, switch LED), ekspor riwayat telemetri. |
+| **Admin** | Manajemen data bayi simulasi, registrasi & pairing perangkat inkubator, pengaturan parameter simulasi (setpoint suhu, PID, switch blue light), uji relay, ekspor riwayat telemetri. |
 | **Operator** | Akses harian: monitoring dashboard real-time, melihat status aktuator, meninjau alarm/notifikasi teknis, input catatan pemantauan bayi. |
 | **Viewer** | Akses baca (*read-only*): hanya dapat melihat ringkasan dashboard dan riwayat telemetri tanpa hak mengubah konfigurasi atau melakukan pairing. |
 
@@ -87,7 +88,7 @@ Aplikasi menerapkan sistem otorisasi berbasis peran untuk memastikan integritas 
 | - Wi-Fi Manager & HTTPS Client  - Non-blocking DS18B20 Read |
 | - Telemetry Dispatcher          - DHT22 Sampling            |
 | - Config Extractor (Piggyback)  - Local PID Heater Control  |
-| - FreeRTOS Comm Queue           - Fan PWM & Blue LED Drive  |
+| - FreeRTOS Comm Queue           - Relay Fan, Heater, Blue Light |
 |                                 - LCD I2C 16x2 Display      |
 |                                 - Hardware Fail-Safe Trip   |
 +-------------------------------------------------------------+
@@ -96,10 +97,11 @@ Aplikasi menerapkan sistem otorisasi berbasis peran untuk memastikan integritas 
 ## 3.2 Pola Komunikasi & Optimasi Jaringan (Piggybacking Pattern)
 
 Menghindari overhead TLS Handshake (400–1000 ms per koneksi pada ESP32) akibat polling config terpisah:
-1. ESP32 mengirim `POST /api/devices/telemetry` setiap 3–5 detik, menyertakan header token perangkat dan field `applied_config_version`.
-2. Laravel memvalidasi data dan memeriksa apakah versi konfigurasi aktif di server lebih tinggi daripada `applied_config_version`.
-3. **Piggybacked Response:** Jika ada konfigurasi baru, server menyertakan payload konfigurasi di dalam respons JSON telemetri.
-4. ESP32 mengekstrak payload baru, menerapkannya ke variabel kontrol lokal, dan pada pengiriman telemetri berikutnya mengirim versi yang telah diperbarui sebagai konfirmasi (ACK) otomatis.
+1. ESP32 mengirim `POST /api/devices/telemetry` setiap 3–5 detik dengan header token perangkat.
+2. Laravel memvalidasi telemetri, menyimpannya, lalu membalas dengan konfigurasi aktif, status pairing, dan `relay_overrides` bila ada uji relay.
+3. **Piggybacked Response:** Konfigurasi selalu ikut pada respons telemetri, sehingga tidak ada polling konfigurasi terpisah dan tidak ada ACK versi.
+4. ESP32 mengekstrak payload, menerapkannya ke variabel kontrol lokal, dan memakai override relay sampai 60 detik tanpa respons server.
+5. Jalur MQTT memakai kontrak yang sama: `incubator/{device_code}/telemetry`, `events`, `status`, dan `sync` (retained).
 
 ## 3.3 Mekanisme Real-Time Dashboard (HTTP Short Polling)
 
@@ -181,27 +183,30 @@ Data bayi simulasi disimpan untuk memberikan konteks pada monitoring inkubator:
 
 ## 4.4 Pengendalian Aktuator
 
-1. **Heater Dummy (Modulasi PID via Driver MOSFET):**
-   - Menggunakan PWM frekuensi 1 kHz hingga 5 kHz pada pin ESP32.
-   - Status dilaporkan sebagai: Nilai duty cycle PWM (`0 - 255`) dan persentase daya (`0% - 100%`).
-   - Algoritma: PID mandiri pada ESP32 dengan konstanta `Kp`, `Ki`, `Kd`.
-2. **Fan DC (Modulasi PWM):**
-   - Mode operasi: `auto` (mengikuti profil suhu/kelembapan) atau `manual_pwm`.
-   - Status dilaporkan sebagai: Nilai PWM (`0 - 255`) dan RPM simulasi/persentase (`0% - 100%`).
-3. **Simulasi Blue Light (LED Biru):**
-   - Status dilaporkan: `true` (ON) / `false` (OFF).
-   - Kontrol via dashboard hanya sebagai simulasi on/off instruksional.
+Sistem memakai empat relay dengan status boolean:
 
-## 4.5 Konfigurasi Sistem & Sinkronisasi Versi
+1. **Relay 1: Fan Sirkulasi** — selalu ON pada kontrol otomatis; fail-safe memaksa ON.
+2. **Relay 2: Heater 1** — ON saat output PID melewati ambang bawah.
+3. **Relay 3: Heater 2** — ON saat output PID melewati ambang atas (di atas 50%).
+4. **Relay 4: Blue Light** — mengikuti `blue_led_enabled` atau override uji.
 
-Setiap inkubator memiliki versi konfigurasi aktif di server:
-- `config_version`: Integer sekuensial (dimulai dari `1`, increment setiap kali ada perubahan di dashboard).
-- `temperature_setpoint`: Rentang yang diizinkan sistem: `28.0°C` s.d. `37.0°C` (safety clamp di firmware).
+Status dilaporkan sebagai objek `relays: {fan, heater_1, heater_2, blue_light}`. Tidak ada PWM pada aplikasi, firmware, maupun payload telemetri.
+
+**Mode uji relay:**
+- Admin dapat menyalakan atau mematikan satu relay dari dashboard.
+- Override disimpan di cache server dan dikirim pada respons telemetri/sync berikutnya.
+- Override bertahan sampai dimatikan atau tombol **Return to auto** ditekan.
+- Firmware menghapus semua override setelah **60 detik** tanpa respons server.
+- Fail-safe firmware selalu menang: kedua heater OFF dan fan ON saat sensor fault atau overheat.
+
+## 4.5 Konfigurasi Sistem
+
+Setiap inkubator memiliki satu konfigurasi aktif (tanpa nomor versi):
+- `temperature_setpoint`: Rentang `28.0°C` s.d. `37.0°C` (safety clamp di firmware).
 - `pid_kp`, `pid_ki`, `pid_kd`: Nilai tuning algoritma PID.
-- `fan_mode`: `auto` / `manual`.
-- `fan_pwm_manual`: `0 - 255`.
 - `blue_led_enabled`: Boolean (`true` / `false`).
-- `telemetry_interval_sec`: Interval pengiriman telemetri (default: `3` detik).
+
+Override relay **bukan** bagian dari konfigurasi perangkat. Override disimpan sementara di cache server per inkubator.
 
 ---
 
@@ -217,10 +222,10 @@ Untuk menjamin waktu nyata (*real-time performance*) dan mencegah *watchdog rese
 |  ---------------------------------------------------------  |
 |  1. Non-blocking DS18B20 sampling (setWaitForConversion)   |
 |  2. DHT22 non-blocking reading interval                     |
-|  3. Local PID Controller Loop (Hitung error & set PWM)      |
+|  3. Local PID Controller Loop (staging Relay Heater 1 & 2)  |
 |  4. Hardware Fail-Safe Guard:                               |
-|     - If (temp_obj > 38.5°C || temp_obj < 15.0°C) -> PWM=0  |
-|     - If (sensor_error == true) -> PWM = 0                  |
+|     - If (temp_obj > 38.5°C || temp_obj < 15.0°C) -> Off    |
+|     - If (sensor_error == true) -> kedua heater OFF         |
 |  5. Refresh LCD I2C 16x2 (Suhu, Kelembapan, Status/Bayi)    |
 |  6. Push data ke FreeRTOS Queue                             |
 |                                                             |
@@ -297,21 +302,23 @@ Aksi pelepasan hubungan bayi dari inkubator:
   ```json
   {
     "device_code": "INC-001",
-    "applied_config_version": 2,
     "temperature_object": 32.45,
     "temperature_room": 29.10,
     "humidity": 58.20,
-    "heater_pwm": 120,
-    "fan_pwm": 80,
-    "blue_led_status": false,
+    "relays": {
+      "fan": true,
+      "heater_1": true,
+      "heater_2": false,
+      "blue_light": false
+    },
     "sensor_status": {
-      "ds18b20": "OK",
-      "dht22": "OK"
+      "ds18b20": true,
+      "dht22": true
     },
     "timestamp": "2026-11-10T08:15:00+07:00"
   }
   ```
-- **Response (200 OK - Versi Server Sama & Perangkat Paired):**
+- **Response (200 OK):**
   ```json
   {
     "status": "success",
@@ -320,38 +327,21 @@ Aksi pelepasan hubungan bayi dari inkubator:
       "code": "BAYI-2026-001",
       "name": "Bayi Ny. Siti"
     },
-    "has_config_update": false,
-    "server_config_version": 2
-  }
-  ```
-- **Response (200 OK - Terdapat Versi Konfigurasi Baru #3):**
-  ```json
-  {
-    "status": "success",
-    "is_paired": true,
-    "baby": {
-      "code": "BAYI-2026-001",
-      "name": "Bayi Ny. Siti"
-    },
-    "has_config_update": true,
-    "server_config_version": 3,
     "config": {
-      "config_version": 3,
       "temperature_setpoint": 33.5,
-      "pid": {
-        "kp": 2.5,
-        "ki": 0.15,
-        "kd": 0.6
-      },
-      "fan_mode": "pwm",
-      "fan_pwm_manual": 100,
-      "blue_led_enabled": true,
-      "telemetry_interval_sec": 3
+      "pid_kp": 2.5,
+      "pid_ki": 0.15,
+      "pid_kd": 0.6,
+      "blue_led_enabled": true
+    },
+    "relay_overrides": {
+      "heater_1": true,
+      "blue_light": false
     }
   }
   ```
 
-### 6.4 `GET /api/incubators/{id}/live-telemetry`
+### 6.4 `GET /api/incubators/{id}/live-telemetry` (dengan session web)
 - **Response (200 OK):**
   ```json
   {
@@ -367,11 +357,15 @@ Aksi pelepasan hubungan bayi dari inkubator:
       "temperature_object": 32.45,
       "temperature_room": 29.10,
       "humidity": 58.20,
-      "heater_pwm": 120,
-      "fan_pwm": 80,
-      "blue_led_status": false,
+      "relays": {
+        "fan": true,
+        "heater_1": true,
+        "heater_2": false,
+        "blue_light": false
+      },
       "timestamp": "2026-11-10T08:15:00+07:00"
-    }
+    },
+    "relay_overrides": {}
   }
   ```
 
@@ -391,12 +385,12 @@ Data bayi simulasi (kode, nama, tanggal lahir, usia gestasi, berat, panjang, sta
 - `id` (PK)
 - `device_code` (Unique, misal `INC-001`)
 - `name` (Nama perangkat, misal `Inkubator A1`)
-- `mac_address` (Unique, misal `24:6F:28:AB:CD:EF`)
-- `device_token` (Hashed unique API token untuk otentikasi telemetry)
+- `mac_address` (Indexed, misal `24:6F:28:AB:CD:EF`)
+- `device_token` (Unique token untuk otentikasi telemetry)
 - `firmware_version` (String, misal `1.0.2`)
 - `status` (Enum: `unpaired`, `paired`, `offline`, `error`)
 - `current_baby_id` (FK nullable ke `babies.id`)
-- `active_config_version` (Integer default `1`)
+- `is_active` (Boolean default `true`)
 - `last_heartbeat_at` (Timestamp nullable)
 - Timestamps
 
@@ -418,29 +412,27 @@ Tabel audit riwayat penempatan dan pelepasan bayi pada inkubator:
 - `temperature_object` (Decimal 5,2: -40.00 s.d. 125.00)
 - `temperature_room` (Decimal 5,2)
 - `humidity` (Decimal 5,2)
-- `heater_pwm` (UnsignedTinyInteger: 0–255)
-- `fan_pwm` (UnsignedTinyInteger: 0–255)
+- `fan_status` (Boolean)
+- `heater_1_status` (Boolean)
+- `heater_2_status` (Boolean)
 - `blue_led_status` (Boolean)
-- `ds18b20_status` (String/Enum: `OK`, `ERROR`, `DISCONNECTED`)
-- `dht22_status` (String/Enum: `OK`, `ERROR`)
-- `applied_config_version` (UnsignedInteger)
-- `created_at` (Timestamp, indexed)
+- `raw_payload` (JSON)
+- `recorded_at` (Timestamp nullable)
+- `created_at` (Timestamp nullable)
 - **Composite Index:** `INDEX idx_incubator_created (incubator_id, created_at DESC)`
 
 ### 7. `device_configs`
 - `id` (PK)
-- `incubator_id` (FK ke `incubators.id`)
-- `config_version` (Integer)
-- `temperature_setpoint` (Decimal 4,2, default 32.00)
+- `incubator_id` (FK unik ke `incubators.id`, satu konfigurasi aktif per inkubator)
+- `temperature_setpoint` (Decimal 4,2, default 30.00)
 - `pid_kp` (Decimal 6,3, default 2.000)
 - `pid_ki` (Decimal 6,3, default 0.100)
 - `pid_kd` (Decimal 6,3, default 0.500)
-- `fan_mode` (Enum: `auto`, `pwm`)
-- `fan_pwm_manual` (UnsignedTinyInteger default 0)
 - `blue_led_enabled` (Boolean default false)
-- `telemetry_interval_sec` (SmallInteger default 3)
-- `created_by_user_id` (FK ke `users.id`)
+- `created_by` (FK nullable ke `users.id`)
 - Timestamps
+
+Override uji relay disimpan sementara di cache, bukan di tabel konfigurasi.
 
 ### 8. `device_events`
 Mencatat kejadian luar biasa (sensor putus, suhu melewati ambang batas aman, kegagalan Wi-Fi reconnect).
@@ -471,11 +463,12 @@ Dengan pengiriman telemetri tiap 3 detik per inkubator:
 | **P0** | `TELEM-01`| Telemetry Ingestion (DS18B20, DHT22, Actuators) | MVP Wajib |
 | **P0** | `DASH-01` | Web Dashboard Real-Time (HTTP Polling 2-3s Alpine.js) | MVP Wajib |
 | **P0** | `CONF-01` | Pengaturan Setpoint Suhu & Piggybacked Config Sync | MVP Wajib |
-| **P0** | `SAFE-01` | Local Fail-Safe Trip pada ESP32 (PWM=0 jika sensor putus) | MVP Wajib |
+| **P0** | `RELAY-01` | Uji empat relay dengan fallback otomatis 60 detik | MVP Wajib |
+| **P0** | `SAFE-01` | Local Fail-Safe Trip pada ESP32 (kedua heater OFF jika sensor putus) | MVP Wajib |
 | **P1** | `HIST-01` | Grafik Riwayat Suhu/Kelembapan & Ekspor CSV | Fase 2 |
 | **P1** | `ALRT-01` | Sistem Notifikasi & Event Log Pelanggaran Ambang | Fase 2 |
 | **P1** | `PRUN-01` | Otomasi Pembersihan Time-Series Data (`telemetry:prune`) | Fase 2 |
-| **P2** | `MQTT-01` | Transisi Protokol ke MQTT over TLS | Lanjutan |
+| **P0** | `MQTT-01` | MQTT over TLS untuk telemetri, event, status, dan sync | MVP Wajib |
 | **P2** | `FHIR-01` | Interoperabilitas Standar HL7 FHIR / SATUSEHAT | Lanjutan |
 
 ---
@@ -488,13 +481,13 @@ Dengan pengiriman telemetri tiap 3 detik per inkubator:
    - ESP32 menerima info bayi pada respons telemetri berikutnya (maks 3 detik) dan menampilkan kode bayi di LCD 16x2.
    - Admin dapat menekan tombol "Lepaskan (Unpair)" untuk mengembalikan status inkubator ke `unpaired` (standby).
 2. **Pengiriman & Penerimaan Telemetri:**
-   - Data suhu objek, suhu ruang, kelembapan, status heater PWM, fan PWM, dan blue LED masuk ke tabel database setiap 3 detik tanpa kebocoran memori.
+   - Data suhu objek, suhu ruang, kelembapan, status empat relay masuk ke tabel database setiap 3–5 detik tanpa kebocoran memori.
 3. **Konfigurasi Tanpa Latensi Tinggi:**
    - Saat Admin mengubah setpoint di web, perubahan terkirim ke ESP32 pada respons telemetri berikutnya (maksimal dalam 3 detik) tanpa ESP32 membuka koneksi HTTP terpisah.
 4. **Visualisasi Real-Time:**
    - Nilai pada kartu dashboard web diperbarui setiap 2-3 detik secara halus tanpa me-refresh seluruh halaman.
 5. **Keandalan Hardware & Keselamatan Lokal:**
-   - Saat sensor DS18B20 sengaja dicabut (kondisi kabel putus), heater langsung mati (*PWM = 0*) dalam waktu kurang dari 500ms, LCD menampilkan pesan error, dan sistem web menerima event `SENSOR_ERROR`.
+   - Saat sensor DS18B20 sengaja dicabut (kondisi kabel putus), kedua relay heater langsung OFF dalam waktu kurang dari 500ms, LCD menampilkan pesan error, dan sistem web menerima event `sensor_fault`.
    - Saat koneksi Wi-Fi terputus, ESP32 tetap mempertahankan setpoint suhu menggunakan kontrol PID lokal dan tidak mengalami restart.
 
 ---
@@ -506,6 +499,7 @@ Dengan pengiriman telemetri tiap 3 detik per inkubator:
 | **TC-01: Pairing Dashboard Sukses** | Admin pilih bayi di dropdown inkubator & klik Pair | Inkubator terhubung, status menjadi `paired`, LCD ESP32 menampilkan nama/kode bayi |
 | **TC-02: Unpairing Dashboard** | Admin klik tombol Lepaskan (Unpair) di dashboard | Hubungan diputus, status kembali `unpaired`, LCD ESP32 beralih ke standby |
 | **TC-03: Validasi Konflik Pairing** | Coba pasangkan bayi yang sedang aktif di inkubator lain | Sistem menolak dengan pesan error validasi bahwa bayi sedang dirawat |
-| **TC-04: Piggybacked Config** | Ubah setpoint di web dari 32°C ke 34°C | ESP32 menerima payload config pada response telemetry, ACK otomatis |
-| **TC-05: Sensor Fault Safety** | Cabut pin data DS18B20 saat heater aktif | PWM pemanas seketika 0%, status sensor melaporkan error |
-| **TC-06: Network Disconnect** | Matikan router Wi-Fi | PID lokal tetap stabil menjalankan kontrol pemanas di Core 1 |
+| **TC-04: Piggybacked Config** | Ubah setpoint di web dari 32°C ke 34°C | ESP32 menerima payload config pada respons telemetri berikutnya |
+| **TC-05: Sensor Fault Safety** | Cabut pin data DS18B20 saat heater aktif | Kedua relay heater OFF, relay fan ON, status sensor melaporkan error |
+| **TC-06: Relay Test Dead-Man** | Aktifkan relay test lalu putuskan koneksi server lebih dari 60 detik | Firmware menghapus override dan kembali ke kontrol otomatis |
+| **TC-07: Network Disconnect** | Matikan router Wi-Fi | PID lokal tetap stabil menjalankan kontrol pemanas di Core 1 |

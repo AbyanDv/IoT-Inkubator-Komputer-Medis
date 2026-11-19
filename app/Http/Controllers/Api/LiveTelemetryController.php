@@ -5,18 +5,21 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DeviceTelemetry;
 use App\Models\Incubator;
+use App\Services\RelayControlService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Response;
 
 class LiveTelemetryController extends Controller
 {
+    public function __construct(private readonly RelayControlService $relays) {}
+
     /**
      * Return latest telemetry for dashboard polling.
      */
     public function show(Incubator $incubator): JsonResponse
     {
         $telemetry = DeviceTelemetry::where('incubator_id', $incubator->id)
-            ->latest('created_at')
+            ->latest('recorded_at')
             ->first();
 
         if (! $telemetry) {
@@ -29,6 +32,7 @@ class LiveTelemetryController extends Controller
                     'status' => $incubator->status,
                 ],
                 'telemetry' => null,
+                'relay_overrides' => (object) $this->relays->overrides($incubator),
                 'baby' => null,
             ]);
         }
@@ -50,12 +54,16 @@ class LiveTelemetryController extends Controller
                 'temperature_object' => (float) $telemetry->temperature_object,
                 'temperature_room' => (float) $telemetry->temperature_room,
                 'humidity' => (float) $telemetry->humidity,
-                'heater_pwm' => $telemetry->heater_pwm,
-                'fan_pwm' => $telemetry->fan_pwm,
-                'blue_led_status' => $telemetry->blue_led_status,
+                'relays' => [
+                    'fan' => (bool) $telemetry->fan_status,
+                    'heater_1' => (bool) $telemetry->heater_1_status,
+                    'heater_2' => (bool) $telemetry->heater_2_status,
+                    'blue_light' => (bool) $telemetry->blue_led_status,
+                ],
                 'recorded_at' => $telemetry->recorded_at?->toIso8601String(),
                 'sensor_status' => $telemetry->raw_payload['sensor_status'] ?? null,
             ],
+            'relay_overrides' => (object) $this->relays->overrides($incubator),
             'baby' => $baby ? [
                 'code' => $baby->baby_code,
                 'name' => $baby->name,

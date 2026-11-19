@@ -10,16 +10,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'incubator_id',
-    'config_version',
     'temperature_setpoint',
     'pid_kp',
     'pid_ki',
     'pid_kd',
-    'fan_mode',
     'blue_led_enabled',
-    'simulation_mode',
-    'is_active',
-    'applied_at',
     'created_by',
 ])]
 class DeviceConfig extends Model
@@ -35,15 +30,11 @@ class DeviceConfig extends Model
     protected function casts(): array
     {
         return [
-            'config_version' => 'integer',
             'temperature_setpoint' => 'decimal:2',
             'pid_kp' => 'decimal:3',
             'pid_ki' => 'decimal:3',
             'pid_kd' => 'decimal:3',
             'blue_led_enabled' => 'boolean',
-            'simulation_mode' => 'boolean',
-            'is_active' => 'boolean',
-            'applied_at' => 'datetime',
         ];
     }
 

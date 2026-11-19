@@ -23,10 +23,7 @@ class MqttPublisher
             return;
         }
 
-        $payload ??= $this->ingestion->syncPayload(
-            $incubator,
-            (int) ($incubator->last_config_version ?? 0),
-        );
+        $payload ??= $this->ingestion->syncPayload($incubator);
 
         try {
             MQTT::publish(

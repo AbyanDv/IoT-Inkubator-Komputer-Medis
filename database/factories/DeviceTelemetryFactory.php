@@ -26,10 +26,9 @@ class DeviceTelemetryFactory extends Factory
             'temperature_object' => $this->faker->randomFloat(2, 35.5, 37.5),
             'temperature_room' => $this->faker->randomFloat(2, 28.0, 32.0),
             'humidity' => $this->faker->randomFloat(2, 50.0, 70.0),
-            'heater_status' => true,
-            'heater_pwm' => $this->faker->numberBetween(0, 255),
             'fan_status' => true,
-            'fan_pwm' => $this->faker->numberBetween(50, 150),
+            'heater_1_status' => true,
+            'heater_2_status' => false,
             'blue_led_status' => false,
             'raw_payload' => [
                 'sensor_status' => ['ds18b20' => 'OK', 'dht22' => 'OK'],

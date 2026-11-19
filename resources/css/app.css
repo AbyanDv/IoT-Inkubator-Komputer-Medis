@@ -53,6 +53,14 @@
         -webkit-tap-highlight-color: transparent;
     }
 
+    :where(button, select, textarea, input:not([type="checkbox"], [type="radio"]), label:has(input[type="checkbox"], input[type="radio"])) {
+        cursor: pointer;
+    }
+
+    :where(button:disabled, select:disabled, textarea:disabled, input:disabled, label:has(input:disabled)) {
+        cursor: not-allowed;
+    }
+
     :focus-visible {
         outline: 2px solid var(--color-accent);
         outline-offset: 2px;

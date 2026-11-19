@@ -94,20 +94,21 @@ class BabyAndPairingTest extends TestCase
             $user = User::factory()->create(['role' => $role]);
             $this->actingAs($user)->get(route('incubators.config.edit', $incubator))->assertForbidden();
             $this->actingAs($user)->post(route('incubators.config.update', $incubator), [
-                'temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4, 'fan_mode' => 'pwm',
+                'temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4,
             ])->assertForbidden();
         }
     }
 
-    public function test_config_update_increments_version_and_audits(): void
+    public function test_config_update_replaces_current_settings_and_audits(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $incubator = Incubator::factory()->create();
-        DeviceConfig::factory()->create(['incubator_id' => $incubator->id, 'config_version' => 4, 'is_active' => true]);
+        DeviceConfig::factory()->create(['incubator_id' => $incubator->id, 'temperature_setpoint' => 32.0]);
         $this->actingAs($admin)->post(route('incubators.config.update', $incubator), [
-            'temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4, 'fan_mode' => 'pwm',
+            'temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4,
         ])->assertRedirect();
-        $this->assertDatabaseHas('device_configs', ['incubator_id' => $incubator->id, 'config_version' => 5, 'is_active' => true]);
+        $this->assertSame(1, $incubator->configs()->count());
+        $this->assertDatabaseHas('device_configs', ['incubator_id' => $incubator->id, 'temperature_setpoint' => 34.5]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'incubator.config_updated', 'target_id' => $incubator->id]);
     }
 
@@ -130,8 +131,8 @@ class BabyAndPairingTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $baby = Baby::factory()->create();
         $incubator = Incubator::factory()->create(['current_baby_id' => $baby->id]);
-        $incubator->telemetries()->create(['temperature_object' => 33, 'temperature_room' => 25, 'humidity' => 40, 'heater_pwm' => 10, 'fan_pwm' => 20, 'recorded_at' => '2026-01-01 00:00:00']);
-        $incubator->telemetries()->create(['temperature_object' => 34, 'temperature_room' => 25, 'humidity' => 41, 'heater_pwm' => 11, 'fan_pwm' => 21, 'recorded_at' => '2026-01-01 00:01:00']);
+        $incubator->telemetries()->create(['temperature_object' => 33, 'temperature_room' => 25, 'humidity' => 40, 'fan_status' => true, 'heater_1_status' => true, 'heater_2_status' => false, 'blue_led_status' => false, 'recorded_at' => '2026-01-01 00:00:00']);
+        $incubator->telemetries()->create(['temperature_object' => 34, 'temperature_room' => 25, 'humidity' => 41, 'fan_status' => true, 'heater_1_status' => false, 'heater_2_status' => true, 'blue_led_status' => true, 'recorded_at' => '2026-01-01 00:01:00']);
         $this->actingAs($admin)->getJson(route('api.incubators.live-telemetry', $incubator))
             ->assertOk()->assertJsonPath('telemetry.temperature_object', 34)->assertJsonPath('baby.name', $baby->name);
     }

@@ -24,7 +24,6 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="#devices" class="btn btn-secondary">View devices</a>
                 <a href="{{ route('babies.index') }}" class="btn btn-primary">
                     <x-icon name="baby" class="size-4" />
                     Babies
@@ -51,7 +50,7 @@
             </div>
         </div>
 
-        <section id="devices" aria-labelledby="devices-heading" class="space-y-4">
+        <section aria-labelledby="devices-heading" class="space-y-4">
             <div class="flex items-end justify-between gap-4">
                 <div>
                     <h2 id="devices-heading" class="text-lg font-semibold">All devices</h2>

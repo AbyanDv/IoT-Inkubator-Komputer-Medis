@@ -6,7 +6,6 @@ use App\Models\DeviceConfig;
 use App\Models\Incubator;
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Carbon;
 
 class IncubatorSeeder extends Seeder
 {
@@ -27,7 +26,6 @@ class IncubatorSeeder extends Seeder
                 'status' => 'offline',
                 'is_active' => true,
                 'last_heartbeat_at' => null,
-                'last_config_version' => 1,
                 'current_baby_id' => null,
             ]
         );
@@ -35,18 +33,13 @@ class IncubatorSeeder extends Seeder
         DeviceConfig::updateOrCreate(
             [
                 'incubator_id' => $incubator->id,
-                'config_version' => 1,
             ],
             [
                 'temperature_setpoint' => 30.00,
                 'pid_kp' => 2.000,
                 'pid_ki' => 0.100,
                 'pid_kd' => 0.500,
-                'fan_mode' => 'pwm',
                 'blue_led_enabled' => false,
-                'simulation_mode' => true,
-                'is_active' => true,
-                'applied_at' => Carbon::now(),
                 'created_by' => $admin?->id,
             ]
         );

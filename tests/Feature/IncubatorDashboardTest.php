@@ -7,6 +7,7 @@ use App\Models\DeviceConfig;
 use App\Models\DevicePairing;
 use App\Models\Incubator;
 use App\Models\User;
+use App\Services\RelayControlService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -30,8 +31,19 @@ class IncubatorDashboardTest extends TestCase
             ->assertSee('setInterval(() => this.poll(), 2500)', false)
             ->assertSee("catch { this.telemetryUnavailable = true; this.updatedAt = 'Telemetry unavailable'; }", false)
             ->assertSee('telemetryUnavailable ? \'Stale\'', false)
-            ->assertSee('heater_pwm', false)
-            ->assertSee('blue_led_status', false)
+            ->assertSee('Relay test')
+            ->assertSee('data-relay-toggle="heater_1"', false)
+            ->assertSee('data-relay-toggle="blue_light"', false)
+            ->assertSee('data-relay-toggle="fan"', false)
+            ->assertSee('data-relay-toggle="heater_2"', false)
+            ->assertSee('type="checkbox"', false)
+            ->assertSee('peer-checked:bg-accent', false)
+            ->assertSee('aria-describedby="relay-safety-note"', false)
+            ->assertSee('data-relay-state="heater_1"', false)
+            ->assertSee('Return to auto')
+            ->assertSee('data-relay-mode=', false)
+            ->assertSee('aria-live="polite"', false)
+            ->assertSee('relayAutoEndpoint', false)
             ->assertSee('Simulation prototype only. Not for clinical use or patient care.')
             ->assertSee('/incubators/'.$incubator->id.'/pair')
             ->assertSee('/incubators/'.$incubator->id.'/config');
@@ -40,6 +52,68 @@ class IncubatorDashboardTest extends TestCase
         DevicePairing::factory()->create(['incubator_id' => $paired->id, 'baby_id' => $baby->id, 'status' => 'active']);
         $this->get('/incubators/'.$paired->id)->assertOk()
             ->assertSee('/incubators/'.$paired->id.'/unpair');
+    }
+
+    public function test_admin_can_toggle_relay_test_and_return_to_auto(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $incubator = Incubator::factory()->create();
+
+        $this->actingAs($admin)->postJson(route('incubators.relays.update', $incubator), [
+            'relay' => 'heater_1',
+            'on' => true,
+        ])->assertOk()->assertJsonPath('overrides.heater_1', true);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'incubator.relay_test',
+            'target_id' => $incubator->id,
+        ]);
+
+        $this->getJson(route('api.incubators.live-telemetry', $incubator))
+            ->assertOk()
+            ->assertJsonPath('relay_overrides.heater_1', true);
+
+        $this->getJson(route('api.incubators.live-telemetry', $incubator))
+            ->assertOk()
+            ->assertJsonPath('telemetry', null);
+
+        $response = $this->postJson(route('incubators.relays.auto', $incubator));
+        $response->assertOk();
+        $this->assertSame([], $response->json('overrides'));
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'incubator.relays_auto',
+            'target_id' => $incubator->id,
+        ]);
+    }
+
+    public function test_operator_and_viewer_cannot_toggle_relays(): void
+    {
+        $incubator = Incubator::factory()->create();
+
+        foreach (['operator', 'viewer'] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+
+            $this->actingAs($user)->postJson(route('incubators.relays.update', $incubator), [
+                'relay' => 'fan',
+                'on' => true,
+            ])->assertForbidden();
+
+            $this->actingAs($user)->postJson(route('incubators.relays.auto', $incubator))->assertForbidden();
+        }
+    }
+
+    public function test_relay_overrides_expire_from_server_cache(): void
+    {
+        $incubator = Incubator::factory()->create();
+        $service = $this->app->make(RelayControlService::class);
+
+        $service->set($incubator, 'fan', false);
+        $this->assertSame(['fan' => false], $service->overrides($incubator));
+
+        $this->travel(6)->minutes();
+
+        $this->assertSame([], $service->overrides($incubator));
     }
 
     public function test_admin_can_pair_and_unpair_baby_with_audit_records(): void
@@ -95,23 +169,23 @@ class IncubatorDashboardTest extends TestCase
         }
     }
 
-    public function test_config_versions_increment(): void
+    public function test_saving_configuration_replaces_existing_configuration(): void
     {
         $incubator = Incubator::factory()->create();
-        $config = DeviceConfig::factory()->create(['incubator_id' => $incubator->id, 'config_version' => 2, 'is_active' => true]);
+        $config = DeviceConfig::factory()->create(['incubator_id' => $incubator->id, 'temperature_setpoint' => 32.0]);
         $admin = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin)->post('/incubators/'.$incubator->id.'/config', [
-            'temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4, 'fan_mode' => 'pwm',
+            'temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4,
         ])->assertRedirect();
 
-        $this->assertDatabaseHas('device_configs', ['incubator_id' => $incubator->id, 'config_version' => 3, 'is_active' => true]);
-        $this->assertDatabaseHas('device_configs', ['id' => $config->id, 'is_active' => false]);
+        $this->assertSame(1, $incubator->configs()->count());
+        $this->assertDatabaseHas('device_configs', ['incubator_id' => $incubator->id, 'temperature_setpoint' => 34.5]);
     }
 
     public function test_operator_and_viewer_cannot_change_config(): void
     {
         $incubator = Incubator::factory()->create();
-        $payload = ['temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4, 'fan_mode' => 'pwm'];
+        $payload = ['temperature_setpoint' => 34.5, 'pid_kp' => 2.1, 'pid_ki' => 0.2, 'pid_kd' => 0.4];
 
         foreach (['operator', 'viewer'] as $role) {
             $user = User::factory()->create(['role' => $role]);

@@ -21,7 +21,6 @@ return new class extends Migration
             $table->string('status')->default('offline');
             $table->boolean('is_active')->default(true);
             $table->timestamp('last_heartbeat_at')->nullable();
-            $table->integer('last_config_version')->default(1);
             $table->foreignId('current_baby_id')->nullable()->constrained('babies')->nullOnDelete();
             $table->timestamps();
         });

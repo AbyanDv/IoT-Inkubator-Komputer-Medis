@@ -57,17 +57,14 @@ def env(name: str, default: str | None = None) -> str:
 
 @dataclass
 class DeviceState:
-    applied_config_version: int = 0
     temperature_setpoint: float = 36.5
     pid_kp: float = 2.0
     pid_ki: float = 0.1
     pid_kd: float = 0.5
-    fan_mode: str = "pwm"
     blue_led_enabled: bool = False
-    simulation_mode: bool = True
     is_paired: bool = False
     baby: dict[str, Any] | None = None
-    config_acknowledged: bool = field(default=False)
+    relay_overrides: dict[str, bool] = field(default_factory=dict)
 
 
 class Simulator:
@@ -177,30 +174,38 @@ class Simulator:
 
         self.state.is_paired = bool(payload.get("is_paired"))
         self.state.baby = payload.get("baby")
+        self.state.relay_overrides = {}
+
+        overrides = payload.get("relay_overrides")
+        if isinstance(overrides, dict):
+            self.state.relay_overrides = {
+                key: bool(value)
+                for key, value in overrides.items()
+                if key in {"fan", "heater_1", "heater_2", "blue_light"}
+            }
 
         config = payload.get("config")
-        if payload.get("has_config_update") and isinstance(config, dict):
-            self.state.applied_config_version = int(config["version"])
+        if isinstance(config, dict):
             self.state.temperature_setpoint = float(config["temperature_setpoint"])
             self.state.pid_kp = float(config["pid_kp"])
             self.state.pid_ki = float(config["pid_ki"])
             self.state.pid_kd = float(config["pid_kd"])
-            self.state.fan_mode = str(config["fan_mode"])
             self.state.blue_led_enabled = bool(config["blue_led_enabled"])
-            self.state.simulation_mode = bool(config["simulation_mode"])
             print(
-                "Applied config v"
-                f"{self.state.applied_config_version}: "
+                "Applied config: "
                 f"setpoint={self.state.temperature_setpoint:.2f} "
-                f"fan={self.state.fan_mode} led={self.state.blue_led_enabled}"
+                f"led={self.state.blue_led_enabled}"
             )
         else:
             print(
                 "Sync: "
                 f"paired={self.state.is_paired} "
                 f"baby={self.state.baby} "
-                f"config=v{self.state.applied_config_version}"
+                "config=none"
             )
+
+        if self.state.relay_overrides:
+            print(f"Relay overrides: {self.state.relay_overrides}")
 
     def telemetry(self) -> dict[str, Any]:
         elapsed = time.monotonic()
@@ -209,28 +214,33 @@ class Simulator:
         ) + random.uniform(-0.08, 0.08)
 
         if self.simulate_fault:
-            heater_pwm = 0
-            fan_pwm = 0
+            relays = {
+                "fan": True,
+                "heater_1": False,
+                "heater_2": False,
+                "blue_light": self.state.blue_led_enabled,
+            }
             ds18b20_ok = False
             dht22_ok = False
         else:
             error = self.state.temperature_setpoint - object_temperature
-            heater_pwm = int(max(0, min(255, 128 + error * 60)))
-            fan_pwm = int(max(0, min(255, 90 + (object_temperature - 30) * 8)))
+            relays = {
+                "fan": True,
+                "heater_1": error > 0.05,
+                "heater_2": error > 0.5,
+                "blue_light": self.state.blue_led_enabled,
+            }
             ds18b20_ok = True
             dht22_ok = True
 
+        relays.update(self.state.relay_overrides)
+
         return {
             "device_code": self.device_code,
-            "applied_config_version": self.state.applied_config_version,
             "temperature_object": round(object_temperature, 2),
             "temperature_room": round(28.0 + random.uniform(-0.4, 0.4), 2),
             "humidity": round(55.0 + random.uniform(-2.0, 2.0), 2),
-            "heater_status": heater_pwm > 0,
-            "heater_pwm": heater_pwm,
-            "fan_status": fan_pwm > 0,
-            "fan_pwm": fan_pwm,
-            "blue_led_status": self.state.blue_led_enabled,
+            "relays": relays,
             "sensor_status": {"ds18b20": ds18b20_ok, "dht22": dht22_ok},
             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
@@ -258,9 +268,7 @@ class Simulator:
                     "Telemetry: "
                     f"object={payload['temperature_object']:.2f} "
                     f"humidity={payload['humidity']:.1f} "
-                    f"heater={payload['heater_pwm']} "
-                    f"fan={payload['fan_pwm']} "
-                    f"config=v{payload['applied_config_version']} "
+                    f"relays={payload['relays']} "
                     f"paired={self.state.is_paired}"
                 )
                 time.sleep(self.interval)

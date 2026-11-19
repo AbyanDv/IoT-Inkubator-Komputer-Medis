@@ -18,10 +18,9 @@ return new class extends Migration
             $table->decimal('temperature_object', 5, 2)->nullable();
             $table->decimal('temperature_room', 5, 2)->nullable();
             $table->decimal('humidity', 5, 2)->nullable();
-            $table->boolean('heater_status')->default(false);
-            $table->integer('heater_pwm')->default(0);
             $table->boolean('fan_status')->default(false);
-            $table->integer('fan_pwm')->default(0);
+            $table->boolean('heater_1_status')->default(false);
+            $table->boolean('heater_2_status')->default(false);
             $table->boolean('blue_led_status')->default(false);
             $table->json('raw_payload')->nullable();
             $table->timestamp('recorded_at')->nullable();

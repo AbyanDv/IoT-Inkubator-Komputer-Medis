@@ -20,8 +20,7 @@ class ConfigController extends Controller
     {
         return ViewFacade::make('incubators.config', [
             'incubator' => $incubator,
-            'config' => $incubator->configs()->latest('config_version')->first(),
-            'nextVersion' => ((int) $incubator->configs()->max('config_version')) + 1,
+            'config' => $incubator->activeConfig,
         ]);
     }
 
@@ -32,22 +31,15 @@ class ConfigController extends Controller
             'pid_kp' => ['required', 'numeric', 'between:0,100'],
             'pid_ki' => ['required', 'numeric', 'between:0,100'],
             'pid_kd' => ['required', 'numeric', 'between:0,100'],
-            'fan_mode' => ['required', 'in:pwm,auto'],
             'blue_led_enabled' => ['sometimes', 'boolean'],
-            'simulation_mode' => ['sometimes', 'boolean'],
         ]);
 
         DB::transaction(function () use ($incubator, $request, $validated): void {
             $incubator = Incubator::query()->lockForUpdate()->findOrFail($incubator->id);
-            $version = ((int) $incubator->configs()->max('config_version')) + 1;
-            $incubator->configs()->where('is_active', true)->update(['is_active' => false]);
             $requestUser = $request->user();
-            $incubator->configs()->create([
+            $incubator->configs()->updateOrCreate([], [
                 ...$validated,
                 'blue_led_enabled' => $request->boolean('blue_led_enabled'),
-                'simulation_mode' => $request->boolean('simulation_mode'),
-                'config_version' => $version,
-                'is_active' => true,
                 'created_by' => $requestUser?->id,
             ]);
             AuditLog::create([
@@ -55,7 +47,7 @@ class ConfigController extends Controller
                 'action' => 'incubator.config_updated',
                 'target_type' => Incubator::class,
                 'target_id' => $incubator->id,
-                'details' => ['config_version' => $version],
+                'details' => ['updated_at' => now()->toISOString()],
                 'ip_address' => $request->ip(),
             ]);
         });

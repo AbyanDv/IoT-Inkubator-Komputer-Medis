@@ -10,6 +10,8 @@ use Illuminate\Validation\Rule;
 
 class DeviceIngestionService
 {
+    public function __construct(private readonly RelayControlService $relays) {}
+
     /**
      * Persist telemetry and return the piggybacked sync payload.
      *
@@ -24,11 +26,10 @@ class DeviceIngestionService
             'temperature_object' => $validated['temperature_object'],
             'temperature_room' => $validated['temperature_room'],
             'humidity' => $validated['humidity'],
-            'heater_status' => $validated['heater_status'] ?? $validated['heater_pwm'] > 0,
-            'heater_pwm' => $validated['heater_pwm'],
-            'fan_status' => $validated['fan_status'] ?? $validated['fan_pwm'] > 0,
-            'fan_pwm' => $validated['fan_pwm'],
-            'blue_led_status' => $validated['blue_led_status'],
+            'fan_status' => $validated['relays']['fan'],
+            'heater_1_status' => $validated['relays']['heater_1'],
+            'heater_2_status' => $validated['relays']['heater_2'],
+            'blue_led_status' => $validated['relays']['blue_light'],
             'raw_payload' => $validated,
             'recorded_at' => isset($validated['timestamp'])
                 ? Carbon::parse($validated['timestamp'])
@@ -37,9 +38,8 @@ class DeviceIngestionService
 
         $this->markOnline($incubator);
         $this->logSensorFaults($incubator, $validated['sensor_status']);
-        $this->recordConfigAcknowledgement($incubator, (int) $validated['applied_config_version']);
 
-        return $this->syncPayload($incubator, (int) $validated['applied_config_version']);
+        return $this->syncPayload($incubator);
     }
 
     /**
@@ -68,7 +68,7 @@ class DeviceIngestionService
      *
      * @return array<string, mixed>
      */
-    public function syncPayload(Incubator $incubator, int $appliedConfigVersion): array
+    public function syncPayload(Incubator $incubator): array
     {
         $incubator->load(['currentBaby', 'activeConfig']);
 
@@ -77,24 +77,14 @@ class DeviceIngestionService
             'name' => $incubator->currentBaby->name,
         ] : null;
 
-        $activeConfig = $incubator->activeConfig;
-        $hasConfigUpdate = false;
-        $serverConfigVersion = $appliedConfigVersion;
-        $configPayload = null;
-
-        if ($activeConfig && $activeConfig->config_version > $appliedConfigVersion) {
-            $hasConfigUpdate = true;
-            $serverConfigVersion = $activeConfig->config_version;
-            $configPayload = $this->configPayload($activeConfig);
-        }
-
         return [
             'status' => 'success',
             'is_paired' => $baby !== null,
             'baby' => $baby,
-            'has_config_update' => $hasConfigUpdate,
-            'server_config_version' => $serverConfigVersion,
-            'config' => $configPayload,
+            'config' => $incubator->activeConfig
+                ? $this->configPayload($incubator->activeConfig)
+                : null,
+            'relay_overrides' => (object) $this->relays->overrides($incubator),
         ];
     }
 
@@ -104,14 +94,11 @@ class DeviceIngestionService
     public function configPayload(DeviceConfig $config): array
     {
         return [
-            'version' => $config->config_version,
             'temperature_setpoint' => (float) $config->temperature_setpoint,
             'pid_kp' => (float) $config->pid_kp,
             'pid_ki' => (float) $config->pid_ki,
             'pid_kd' => (float) $config->pid_kd,
-            'fan_mode' => $config->fan_mode,
             'blue_led_enabled' => $config->blue_led_enabled,
-            'simulation_mode' => $config->simulation_mode,
         ];
     }
 
@@ -147,20 +134,5 @@ class DeviceIngestionService
                 'payload' => ['sensor' => $sensor, 'status' => false],
             ]);
         }
-    }
-
-    /**
-     * Piggybacked ACK: telemetry carries the version the device actually runs.
-     */
-    private function recordConfigAcknowledgement(Incubator $incubator, int $appliedConfigVersion): void
-    {
-        if ($appliedConfigVersion <= $incubator->last_config_version) {
-            return;
-        }
-
-        $incubator->update(['last_config_version' => $appliedConfigVersion]);
-        $incubator->configs()
-            ->where('config_version', $appliedConfigVersion)
-            ->update(['applied_at' => Carbon::now()]);
     }
 }

@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\Api\DeviceController;
 use App\Http\Controllers\Api\DeviceTelemetryController;
-use App\Http\Controllers\Api\LiveTelemetryController;
 use App\Http\Middleware\DeviceTokenAuth;
 use Illuminate\Support\Facades\Route;
 
@@ -16,14 +15,4 @@ Route::middleware(DeviceTokenAuth::class)->prefix('devices')->group(function () 
     Route::post('/telemetry', [DeviceTelemetryController::class, 'store'])->name('api.devices.telemetry');
     Route::post('/events', [DeviceController::class, 'storeEvent'])->name('api.devices.events');
     Route::get('/config', [DeviceController::class, 'config'])->name('api.devices.config');
-    Route::post('/ack', [DeviceController::class, 'acknowledge'])->name('api.devices.ack');
 });
-
-/*
-|--------------------------------------------------------------------------
-| Dashboard API Routes (session auth)
-|--------------------------------------------------------------------------
-*/
-Route::get('/incubators/{incubator}/live-telemetry', [LiveTelemetryController::class, 'show'])
-    ->middleware('auth')
-    ->name('api.incubators.live-telemetry');

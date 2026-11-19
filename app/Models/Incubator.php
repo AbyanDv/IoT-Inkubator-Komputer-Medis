@@ -19,7 +19,6 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'status',
     'is_active',
     'last_heartbeat_at',
-    'last_config_version',
     'current_baby_id',
 ])]
 class Incubator extends Model
@@ -37,7 +36,6 @@ class Incubator extends Model
         return [
             'is_active' => 'boolean',
             'last_heartbeat_at' => 'datetime',
-            'last_config_version' => 'integer',
         ];
     }
 
@@ -94,7 +92,7 @@ class Incubator extends Model
     }
 
     /**
-     * Get all configuration versions for this incubator.
+     * Get the configuration for this incubator.
      *
      * @return HasMany<DeviceConfig, $this>
      */
@@ -104,15 +102,13 @@ class Incubator extends Model
     }
 
     /**
-     * Get the currently active configuration for this incubator.
+     * Get the configuration for this incubator.
      *
      * @return HasOne<DeviceConfig, $this>
      */
     public function activeConfig(): HasOne
     {
-        return $this->hasOne(DeviceConfig::class)
-            ->where('is_active', true)
-            ->latestOfMany('config_version');
+        return $this->hasOne(DeviceConfig::class);
     }
 
     /**

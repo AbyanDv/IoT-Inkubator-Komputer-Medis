@@ -7,6 +7,7 @@ use App\Models\DeviceConfig;
 use App\Models\DeviceTelemetry;
 use App\Models\Incubator;
 use App\Models\User;
+use App\Services\RelayControlService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
@@ -22,13 +23,15 @@ class DeviceApiTest extends TestCase
     {
         return array_merge([
             'device_code' => $this->incubator->device_code,
-            'applied_config_version' => 1,
             'temperature_object' => 36.5,
             'temperature_room' => 28.1,
             'humidity' => 55.0,
-            'heater_pwm' => 180,
-            'fan_pwm' => 120,
-            'blue_led_status' => true,
+            'relays' => [
+                'fan' => true,
+                'heater_1' => true,
+                'heater_2' => false,
+                'blue_light' => true,
+            ],
             'sensor_status' => ['ds18b20' => true, 'dht22' => true],
             'timestamp' => '2026-11-10T10:00:00Z',
         ], $overrides);
@@ -95,38 +98,44 @@ class DeviceApiTest extends TestCase
             'incubator_id' => $this->incubator->id,
             'temperature_object' => 36.5,
             'humidity' => 55.0,
-            'heater_pwm' => 180,
+            'fan_status' => true,
+            'heater_1_status' => true,
+            'heater_2_status' => false,
+            'blue_led_status' => true,
         ]);
         $this->assertSame('online', $this->incubator->fresh()->status);
         $this->assertNotNull($this->incubator->fresh()->last_heartbeat_at);
     }
 
-    public function test_config_sync_when_version_stale(): void
+    public function test_telemetry_returns_current_configuration(): void
     {
         DeviceConfig::factory()->create([
             'incubator_id' => $this->incubator->id,
-            'config_version' => 3,
-            'is_active' => true,
             'temperature_setpoint' => 36.50,
             'pid_kp' => 2.000,
             'pid_ki' => 0.500,
             'pid_kd' => 0.100,
         ]);
 
-        $this->postJson('/api/devices/telemetry', $this->validPayload(['applied_config_version' => 2]), ['X-Device-Token' => 'test-token-abc123'])
+        $this->postJson('/api/devices/telemetry', $this->validPayload(), ['X-Device-Token' => 'test-token-abc123'])
             ->assertOk()
-            ->assertJson(['has_config_update' => true, 'server_config_version' => 3])
-            ->assertJsonPath('config.version', 3)
             ->assertJsonPath('config.temperature_setpoint', 36.5);
     }
 
-    public function test_no_config_update_when_version_current(): void
+    public function test_telemetry_returns_null_config_when_none_exists(): void
     {
-        DeviceConfig::factory()->create(['incubator_id' => $this->incubator->id, 'config_version' => 2, 'is_active' => true]);
-
-        $this->postJson('/api/devices/telemetry', $this->validPayload(['applied_config_version' => 2]), ['X-Device-Token' => 'test-token-abc123'])
+        $this->postJson('/api/devices/telemetry', $this->validPayload(), ['X-Device-Token' => 'test-token-abc123'])
             ->assertOk()
-            ->assertJson(['has_config_update' => false, 'config' => null]);
+            ->assertJson(['config' => null]);
+    }
+
+    public function test_telemetry_returns_active_relay_overrides(): void
+    {
+        $this->app->make(RelayControlService::class)->set($this->incubator, 'heater_1', true);
+
+        $this->postJson('/api/devices/telemetry', $this->validPayload(), ['X-Device-Token' => 'test-token-abc123'])
+            ->assertOk()
+            ->assertJsonPath('relay_overrides.heater_1', true);
     }
 
     public function test_paired_baby_is_in_response_and_telemetry(): void
@@ -160,21 +169,15 @@ class DeviceApiTest extends TestCase
         ]);
     }
 
-    public function test_config_fetch_and_acknowledgment(): void
+    public function test_config_fetch_returns_current_configuration(): void
     {
-        DeviceConfig::factory()->create(['incubator_id' => $this->incubator->id, 'config_version' => 2, 'is_active' => true]);
+        DeviceConfig::factory()->create(['incubator_id' => $this->incubator->id]);
         $headers = ['X-Device-Token' => 'test-token-abc123'];
 
         $this->getJson('/api/devices/config', $headers)
             ->assertOk()
             ->assertJson(['status' => 'success'])
-            ->assertJsonPath('config.version', 2);
-        $this->postJson('/api/devices/ack', ['config_version' => 2], $headers)
-            ->assertOk()
-            ->assertJson(['status' => 'success']);
-
-        $this->assertSame(2, $this->incubator->fresh()->last_config_version);
-        $this->assertNotNull(DeviceConfig::query()->where('incubator_id', $this->incubator->id)->first()->applied_at);
+            ->assertJsonPath('config.temperature_setpoint', 30);
     }
 
     public function test_validation_rejects_invalid_telemetry(): void
@@ -205,7 +208,7 @@ class DeviceApiTest extends TestCase
             ->assertOk()
             ->assertJson(['status' => 'no_data', 'telemetry' => null]);
 
-        DeviceTelemetry::factory()->create([
+        $older = DeviceTelemetry::factory()->create([
             'incubator_id' => $this->incubator->id,
             'temperature_object' => 36.5,
             'created_at' => Carbon::now(),
@@ -213,6 +216,34 @@ class DeviceApiTest extends TestCase
 
         $this->getJson("/api/incubators/{$this->incubator->id}/live-telemetry")
             ->assertOk()
-            ->assertJsonPath('telemetry.temperature_object', 36.5);
+            ->assertJsonPath('telemetry.temperature_object', 36.5)
+            ->assertJsonPath('telemetry.relays.fan', true);
+
+        $this->app->make(RelayControlService::class)->set($this->incubator, 'blue_light', false);
+        $this->getJson("/api/incubators/{$this->incubator->id}/live-telemetry")
+            ->assertOk()
+            ->assertJsonPath('relay_overrides.blue_light', false);
+    }
+
+    public function test_live_telemetry_orders_by_recorded_time(): void
+    {
+        $older = DeviceTelemetry::factory()->create([
+            'incubator_id' => $this->incubator->id,
+            'temperature_object' => 31.0,
+            'recorded_at' => Carbon::parse('2026-11-10T10:00:00Z'),
+            'created_at' => Carbon::parse('2026-11-10T12:00:00Z'),
+        ]);
+        $newer = DeviceTelemetry::factory()->create([
+            'incubator_id' => $this->incubator->id,
+            'temperature_object' => 35.0,
+            'recorded_at' => Carbon::parse('2026-11-10T11:00:00Z'),
+            'created_at' => Carbon::parse('2026-11-10T11:00:00Z'),
+        ]);
+        $this->assertTrue($older->created_at->gt($newer->created_at));
+
+        $this->actingAs(User::factory()->create(['role' => 'viewer']))
+            ->getJson("/api/incubators/{$this->incubator->id}/live-telemetry")
+            ->assertOk()
+            ->assertJsonPath('telemetry.temperature_object', 35);
     }
 }

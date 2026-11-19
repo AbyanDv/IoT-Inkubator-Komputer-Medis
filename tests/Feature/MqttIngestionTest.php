@@ -7,6 +7,7 @@ use App\Models\Incubator;
 use App\Models\User;
 use App\Services\MqttMessageHandler;
 use App\Services\MqttPublisher;
+use App\Services\RelayControlService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use Tests\TestCase;
@@ -32,13 +33,15 @@ class MqttIngestionTest extends TestCase
     {
         return array_merge([
             'device_code' => 'INC-001',
-            'applied_config_version' => 1,
             'temperature_object' => 36.5,
             'temperature_room' => 28.1,
             'humidity' => 55.0,
-            'heater_pwm' => 180,
-            'fan_pwm' => 120,
-            'blue_led_status' => true,
+            'relays' => [
+                'fan' => true,
+                'heater_1' => true,
+                'heater_2' => false,
+                'blue_light' => true,
+            ],
             'sensor_status' => ['ds18b20' => true, 'dht22' => true],
             'timestamp' => '2026-11-10T10:00:00Z',
         ], $overrides);
@@ -75,16 +78,36 @@ class MqttIngestionTest extends TestCase
         ]);
         $this->assertSame('online', $this->incubator->fresh()->status);
         $this->assertSame('success', $published['status']);
-        $this->assertFalse($published['has_config_update']);
+        $this->assertFalse($published['is_paired']);
         $this->assertNull($published['config']);
+        $this->assertSame([], (array) $published['relay_overrides']);
     }
 
-    public function test_telemetry_publishes_new_config_when_device_is_stale(): void
+    public function test_telemetry_sync_includes_relay_overrides(): void
+    {
+        $this->app->make(RelayControlService::class)->set($this->incubator, 'heater_2', true);
+
+        $published = null;
+
+        $publisher = Mockery::mock(MqttPublisher::class);
+        $publisher->shouldReceive('publishSync')
+            ->once()
+            ->withArgs(function (Incubator $incubator, array $payload) use (&$published): bool {
+                $published = $payload;
+
+                return true;
+            });
+        $this->app->instance(MqttPublisher::class, $publisher);
+
+        $this->handle('telemetry', $this->telemetry());
+
+        $this->assertSame(['heater_2' => true], (array) $published['relay_overrides']);
+    }
+
+    public function test_telemetry_sync_includes_current_config(): void
     {
         DeviceConfig::factory()->create([
             'incubator_id' => $this->incubator->id,
-            'config_version' => 3,
-            'is_active' => true,
             'temperature_setpoint' => 36.50,
         ]);
 
@@ -100,31 +123,9 @@ class MqttIngestionTest extends TestCase
             });
         $this->app->instance(MqttPublisher::class, $publisher);
 
-        $this->handle('telemetry', $this->telemetry(['applied_config_version' => 2]));
+        $this->handle('telemetry', $this->telemetry());
 
-        $this->assertTrue($published['has_config_update']);
-        $this->assertSame(3, $published['server_config_version']);
-        $this->assertSame(3, $published['config']['version']);
-    }
-
-    public function test_telemetry_acknowledges_applied_config_version(): void
-    {
-        DeviceConfig::factory()->create([
-            'incubator_id' => $this->incubator->id,
-            'config_version' => 3,
-            'is_active' => true,
-        ]);
-
-        $this->handle('telemetry', $this->telemetry(['applied_config_version' => 3]));
-
-        $this->assertSame(3, $this->incubator->fresh()->last_config_version);
-        $this->assertNotNull(
-            DeviceConfig::query()
-                ->where('incubator_id', $this->incubator->id)
-                ->where('config_version', 3)
-                ->first()
-                ->applied_at,
-        );
+        $this->assertSame(36.5, $published['config']['temperature_setpoint']);
     }
 
     public function test_telemetry_with_mismatched_device_code_is_ignored(): void
@@ -192,15 +193,13 @@ class MqttIngestionTest extends TestCase
                 'pid_kp' => 2,
                 'pid_ki' => 0.1,
                 'pid_kd' => 0.5,
-                'fan_mode' => 'pwm',
                 'blue_led_enabled' => true,
-                'simulation_mode' => false,
             ])
             ->assertRedirect();
 
         $this->assertDatabaseHas('device_configs', [
             'incubator_id' => $this->incubator->id,
-            'config_version' => 1,
+            'temperature_setpoint' => 36.5,
         ]);
     }
 }

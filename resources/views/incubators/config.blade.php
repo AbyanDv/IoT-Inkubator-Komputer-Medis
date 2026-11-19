@@ -15,12 +15,9 @@
             </a>
             <div class="mt-4 flex flex-wrap items-center gap-3">
                 <h1 class="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Device configuration</h1>
-                @if ($config)
-                    <span class="badge badge-neutral">Current v{{ $config->config_version }}</span>
-                @endif
             </div>
             <p class="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">
-                Saving publishes a new version. The ESP32 collects it on its next telemetry response, then acknowledges it automatically.
+                Changes replace the current settings. The device receives them on its next sync.
             </p>
         </div>
 
@@ -47,8 +44,8 @@
             >
                 @csrf
                 <div class="border-b border-line px-5 py-4 sm:px-6">
-                    <h2 id="config-form-heading" class="text-lg font-semibold">New version {{ $nextVersion }}</h2>
-                    <p class="mt-0.5 text-sm text-ink-soft">Every save creates a new immutable version.</p>
+                    <h2 id="config-form-heading" class="text-lg font-semibold">Current settings</h2>
+                    <p class="mt-0.5 text-sm text-ink-soft">Saving replaces the stored configuration.</p>
                 </div>
 
                 <div class="space-y-8 px-5 py-6 sm:px-6">
@@ -86,42 +83,6 @@
                     </fieldset>
 
                     <fieldset class="section-divider">
-                        <legend class="text-base font-semibold">Circulation</legend>
-                        <p class="mt-1 text-sm leading-relaxed text-ink-soft">Choose how the device resolves fan output.</p>
-                        <div class="mt-4 grid gap-3 sm:grid-cols-2">
-                            <label class="flex cursor-pointer gap-3 rounded-xl border border-line bg-bone/40 p-3 transition-colors duration-150 has-[:checked]:border-accent has-[:checked]:bg-accent-soft">
-                                <input
-                                    type="radio"
-                                    name="fan_mode"
-                                    value="pwm"
-                                    @checked(old('fan_mode', $config?->fan_mode ?? 'pwm') === 'pwm')
-                                    class="mt-1 size-4 shrink-0 accent-[var(--color-accent)]"
-                                >
-                                <span>
-                                    <span class="block text-sm font-medium">Fixed PWM</span>
-                                    <span class="mt-0.5 block text-xs leading-relaxed text-ink-soft">Fan holds the PWM value published with this configuration.</span>
-                                </span>
-                            </label>
-                            <label class="flex cursor-pointer gap-3 rounded-xl border border-line bg-bone/40 p-3 transition-colors duration-150 has-[:checked]:border-accent has-[:checked]:bg-accent-soft">
-                                <input
-                                    type="radio"
-                                    name="fan_mode"
-                                    value="auto"
-                                    @checked(old('fan_mode', $config?->fan_mode ?? 'pwm') === 'auto')
-                                    class="mt-1 size-4 shrink-0 accent-[var(--color-accent)]"
-                                >
-                                <span>
-                                    <span class="block text-sm font-medium">Auto</span>
-                                    <span class="mt-0.5 block text-xs leading-relaxed text-ink-soft">Device follows its local temperature and humidity profile.</span>
-                                </span>
-                            </label>
-                        </div>
-                        @error('fan_mode')
-                            <p class="field-error" role="alert">{{ $message }}</p>
-                        @enderror
-                    </fieldset>
-
-                    <fieldset class="section-divider">
                         <legend class="text-base font-semibold">Indicators</legend>
                         <div class="mt-2 divide-y divide-line">
                             <x-toggle
@@ -129,12 +90,6 @@
                                 label="Blue light"
                                 hint="Instructional phototherapy simulation. Not a calibrated light source."
                                 :checked="$config?->blue_led_enabled ?? false"
-                            />
-                            <x-toggle
-                                name="simulation_mode"
-                                label="Simulation mode"
-                                hint="Keeps the device in the academic test profile."
-                                :checked="$config?->simulation_mode ?? true"
                             />
                         </div>
                     </fieldset>
@@ -144,16 +99,16 @@
                     <a href="{{ route('incubators.show', $incubator) }}" class="btn btn-ghost">Cancel</a>
                     <button type="submit" class="btn btn-primary">
                         <x-icon name="check" class="size-4" />
-                        Save as v{{ $nextVersion }}
+                        Save configuration
                     </button>
                 </div>
             </form>
 
             <aside class="space-y-6">
                 <section class="card reveal p-5" aria-labelledby="current-config-heading">
-                    <p class="eyebrow">Active version</p>
+                    <p class="eyebrow">Current configuration</p>
                     <h2 id="current-config-heading" class="mt-1 text-lg font-semibold">
-                        {{ $config ? 'v'.$config->config_version : 'None' }}
+                        {{ $config ? 'Configured' : 'Not configured' }}
                     </h2>
 
                     @if ($config)
@@ -167,41 +122,14 @@
                                 <dd class="font-mono text-xs tabular-nums">{{ number_format((float) $config->pid_kp, 2) }} / {{ number_format((float) $config->pid_ki, 2) }} / {{ number_format((float) $config->pid_kd, 2) }}</dd>
                             </div>
                             <div class="flex items-baseline justify-between gap-3">
-                                <dt class="text-ink-soft">Fan</dt>
-                                <dd class="font-medium">{{ $config->fan_mode === 'pwm' ? 'Fixed PWM' : 'Auto' }}</dd>
-                            </div>
-                            <div class="flex items-baseline justify-between gap-3">
                                 <dt class="text-ink-soft">Blue light</dt>
                                 <dd class="font-medium">{{ $config->blue_led_enabled ? 'Enabled' : 'Disabled' }}</dd>
                             </div>
                         </dl>
 
-                        <div class="mt-4 flex items-center gap-2 border-t border-line pt-3 text-xs text-ink-soft">
-                            <span class="status-dot {{ $config->applied_at ? 'bg-accent' : 'bg-warn' }}" aria-hidden="true"></span>
-                            {{ $config->applied_at ? 'Applied '.$config->applied_at->diffForHumans() : 'Awaiting device acknowledgement' }}
-                        </div>
                     @else
-                        <p class="mt-3 text-sm leading-relaxed text-ink-soft">No version has been published yet. The first save becomes v1.</p>
+                        <p class="mt-3 text-sm leading-relaxed text-ink-soft">Save settings to configure this device.</p>
                     @endif
-                </section>
-
-                <section class="card reveal p-5" aria-labelledby="sync-heading">
-                    <p class="eyebrow">Sync path</p>
-                    <h2 id="sync-heading" class="mt-1 text-lg font-semibold">No extra device request</h2>
-                    <ol class="mt-4 space-y-3 text-sm leading-relaxed text-ink-soft">
-                        <li class="flex gap-3">
-                            <span class="grid size-5 shrink-0 place-items-center rounded-full bg-ink text-[0.65rem] font-semibold text-white">1</span>
-                            <span>Save creates v{{ $nextVersion }} on the server.</span>
-                        </li>
-                        <li class="flex gap-3">
-                            <span class="grid size-5 shrink-0 place-items-center rounded-full bg-ink text-[0.65rem] font-semibold text-white">2</span>
-                            <span>The next telemetry response carries the new payload.</span>
-                        </li>
-                        <li class="flex gap-3">
-                            <span class="grid size-5 shrink-0 place-items-center rounded-full bg-ink text-[0.65rem] font-semibold text-white">3</span>
-                            <span>The device applies it locally and reports the version back.</span>
-                        </li>
-                    </ol>
                 </section>
 
                 <section class="rounded-2xl border border-warn/25 bg-warn-soft p-5">
@@ -210,7 +138,7 @@
                         Safety boundary
                     </p>
                     <p class="mt-2 text-xs leading-relaxed text-warn">
-                        Heater safety runs on the ESP32, not here. A sensor fault forces PWM to 0% locally even if the server is unreachable.
+                        Heater safety runs on the ESP32. Sensor faults force both heater relays off and the fan relay on, even without server access.
                     </p>
                 </section>
             </aside>

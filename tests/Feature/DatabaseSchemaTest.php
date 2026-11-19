@@ -72,9 +72,7 @@ class DatabaseSchemaTest extends TestCase
         $this->assertEquals('dev-token-inc-001', $incubator->device_token);
 
         $this->assertNotNull($incubator->activeConfig);
-        $this->assertEquals(1, $incubator->activeConfig->config_version);
         $this->assertEquals('30.00', (string) $incubator->activeConfig->temperature_setpoint);
-        $this->assertTrue($incubator->activeConfig->is_active);
     }
 
     public function test_user_relationships_and_helpers(): void
@@ -143,9 +141,7 @@ class DatabaseSchemaTest extends TestCase
         $baby = Baby::factory()->create();
         $incubator = Incubator::factory()->create([
             'current_baby_id' => $baby->id,
-            'is_active' => true,
             'last_heartbeat_at' => Carbon::now(),
-            'last_config_version' => 2,
         ]);
 
         $pairing = DevicePairing::factory()->create([
@@ -154,16 +150,8 @@ class DatabaseSchemaTest extends TestCase
             'status' => 'active',
         ]);
 
-        $configV1 = DeviceConfig::factory()->create([
+        $config = DeviceConfig::factory()->create([
             'incubator_id' => $incubator->id,
-            'config_version' => 1,
-            'is_active' => false,
-        ]);
-
-        $configV2 = DeviceConfig::factory()->create([
-            'incubator_id' => $incubator->id,
-            'config_version' => 2,
-            'is_active' => true,
         ]);
 
         $event = DeviceEvent::factory()->create([
@@ -181,11 +169,10 @@ class DatabaseSchemaTest extends TestCase
         $this->assertInstanceOf(Carbon::class, $incubator->last_heartbeat_at);
         $this->assertSame($baby->id, $incubator->currentBaby->id);
         $this->assertSame($pairing->id, $incubator->activePairing->id);
-        $this->assertSame($configV2->id, $incubator->activeConfig->id);
+        $this->assertSame($config->id, $incubator->activeConfig->id);
         $this->assertTrue($incubator->events->contains($event));
         $this->assertTrue($incubator->telemetries->contains($telemetry));
-        $this->assertTrue($incubator->configs->contains($configV1));
-        $this->assertTrue($incubator->configs->contains($configV2));
+        $this->assertTrue($incubator->configs->contains($config));
     }
 
     public function test_device_telemetry_casts_and_relations(): void
@@ -199,10 +186,9 @@ class DatabaseSchemaTest extends TestCase
             'temperature_object' => 36.45,
             'temperature_room' => 29.50,
             'humidity' => 60.15,
-            'heater_status' => true,
-            'heater_pwm' => 180,
             'fan_status' => true,
-            'fan_pwm' => 100,
+            'heater_1_status' => true,
+            'heater_2_status' => false,
             'blue_led_status' => false,
             'raw_payload' => ['ds18b20' => 'OK', 'dht22' => 'OK'],
             'recorded_at' => Carbon::now(),
@@ -212,10 +198,9 @@ class DatabaseSchemaTest extends TestCase
         $this->assertSame('36.45', (string) $telemetry->temperature_object);
         $this->assertSame('29.50', (string) $telemetry->temperature_room);
         $this->assertSame('60.15', (string) $telemetry->humidity);
-        $this->assertTrue($telemetry->heater_status);
-        $this->assertSame(180, $telemetry->heater_pwm);
         $this->assertTrue($telemetry->fan_status);
-        $this->assertSame(100, $telemetry->fan_pwm);
+        $this->assertTrue($telemetry->heater_1_status);
+        $this->assertFalse($telemetry->heater_2_status);
         $this->assertFalse($telemetry->blue_led_status);
         $this->assertIsArray($telemetry->raw_payload);
         $this->assertSame('OK', $telemetry->raw_payload['ds18b20']);
@@ -233,28 +218,19 @@ class DatabaseSchemaTest extends TestCase
 
         $config = DeviceConfig::create([
             'incubator_id' => $incubator->id,
-            'config_version' => 2,
             'temperature_setpoint' => 32.50,
             'pid_kp' => 2.500,
             'pid_ki' => 0.150,
             'pid_kd' => 0.600,
-            'fan_mode' => 'pwm',
             'blue_led_enabled' => true,
-            'simulation_mode' => false,
-            'is_active' => true,
-            'applied_at' => Carbon::now(),
             'created_by' => $user->id,
         ]);
 
-        $this->assertSame(2, $config->config_version);
         $this->assertSame('32.50', (string) $config->temperature_setpoint);
         $this->assertSame('2.500', (string) $config->pid_kp);
         $this->assertSame('0.150', (string) $config->pid_ki);
         $this->assertSame('0.600', (string) $config->pid_kd);
         $this->assertTrue($config->blue_led_enabled);
-        $this->assertFalse($config->simulation_mode);
-        $this->assertTrue($config->is_active);
-        $this->assertInstanceOf(Carbon::class, $config->applied_at);
 
         $this->assertSame($incubator->id, $config->incubator->id);
         $this->assertSame($user->id, $config->user->id);

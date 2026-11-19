@@ -21,8 +21,6 @@
         };
         $sensorTone = fn (string $key): string => $sensorLabel($key) === 'OK' ? 'badge-ok' : ($sensorLabel($key) === 'Fault' ? 'badge-danger' : 'badge-neutral');
         $setpoint = $config ? (float) $config->temperature_setpoint : null;
-        $heaterPercent = $telemetry ? (int) round($telemetry['heater_pwm'] / 255 * 100) : null;
-        $fanPercent = $telemetry ? (int) round($telemetry['fan_pwm'] / 255 * 100) : null;
         $recentReadings = $history->reverse()->take(8);
         $telemetryEndpoint = route('api.incubators.live-telemetry', $incubator);
         $initialState = [
@@ -31,6 +29,9 @@
             'sensorStatus' => $sensorStatus,
             'setpoint' => $setpoint,
             'endpoint' => $telemetryEndpoint,
+            'relayOverrides' => (object) $relayOverrides,
+            'relayEndpoint' => route('incubators.relays.update', $incubator),
+            'relayAutoEndpoint' => route('incubators.relays.auto', $incubator),
         ];
     @endphp
 
@@ -122,9 +123,8 @@
                                 <span class="size-1.5 rounded-full bg-warn" aria-hidden="true"></span>
                                 Setpoint <strong class="font-semibold text-ink">{{ number_format($setpoint, 1) }} °C</strong>
                             </span>
-                            <span>Config v{{ $config->config_version }}</span>
                         @else
-                            <span>No active configuration version.</span>
+                            <span>No configuration saved.</span>
                         @endif
                         <span>Updates every 2.5 s</span>
                     </div>
@@ -186,52 +186,75 @@
 
                 <div class="grid gap-6 sm:grid-cols-2">
                     <section class="card reveal p-5 sm:p-6" aria-labelledby="actuators-heading">
-                        <p class="eyebrow">Actuators</p>
-                        <h2 id="actuators-heading" class="mt-1 text-lg font-semibold">Heater & circulation</h2>
-
-                        <div class="mt-5 space-y-5">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
                             <div>
-                                <div class="flex items-baseline justify-between gap-3">
-                                    <span class="flex items-center gap-2 text-sm font-medium">
-                                        <x-icon name="flame" class="size-4 text-ink-soft" />
-                                        Heater
-                                    </span>
-                                    <span class="text-sm tabular-nums text-ink-soft">
-                                        <span data-reading="heater_pwm" class="font-semibold text-ink">{{ $telemetry['heater_pwm'] ?? '—' }}</span> PWM
-                                    </span>
-                                </div>
-                                <div class="meter-track mt-2" aria-hidden="true">
-                                    <div data-meter="heater" class="meter-fill" style="width: {{ $heaterPercent ?? 0 }}%"></div>
-                                </div>
-                                <p class="mt-1 text-xs text-ink-soft"><span data-heater-percent class="tabular-nums">{{ $heaterPercent ?? '—' }}</span>% duty cycle</p>
+                                <p class="eyebrow">Actuators</p>
+                                <h2 id="actuators-heading" class="mt-1 text-lg font-semibold">Relay test</h2>
                             </div>
+                        </div>
 
-                            <div>
-                                <div class="flex items-baseline justify-between gap-3">
-                                    <span class="flex items-center gap-2 text-sm font-medium">
-                                        <x-icon name="wind" class="size-4 text-ink-soft" />
-                                        Fan
-                                    </span>
-                                    <span class="text-sm tabular-nums text-ink-soft">
-                                        <span data-reading="fan_pwm" class="font-semibold text-ink">{{ $telemetry['fan_pwm'] ?? '—' }}</span> PWM
-                                    </span>
-                                </div>
-                                <div class="meter-track mt-2" aria-hidden="true">
-                                    <div data-meter="fan" class="meter-fill" style="width: {{ $fanPercent ?? 0 }}%"></div>
-                                </div>
-                                <p class="mt-1 text-xs text-ink-soft"><span data-fan-percent class="tabular-nums">{{ $fanPercent ?? '—' }}</span>% output</p>
-                            </div>
+                        <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+                            Check each relay channel. A test switch takes control until you return it to automatic mode.
+                        </p>
 
-                            <div class="flex items-center justify-between gap-3 rounded-xl border border-line bg-bone/60 px-4 py-3">
-                                <span class="flex items-center gap-2 text-sm font-medium">
-                                    <x-icon name="bulb" class="size-4 text-ink-soft" />
-                                    Blue light
-                                </span>
-                                <span data-led-state class="badge {{ ($telemetry['blue_led_status'] ?? false) ? 'badge-ok' : 'badge-neutral' }}">
-                                    <span class="status-dot" aria-hidden="true"></span>
-                                    <span data-led-text>{{ ($telemetry['blue_led_status'] ?? false) ? 'On' : 'Off' }}</span>
-                                </span>
+                        <div class="mt-5 overflow-hidden rounded-xl border border-line">
+                            @foreach ([
+                                'fan' => ['label' => 'Fan / circulation', 'hint' => 'Chamber air circulation'],
+                                'heater_1' => ['label' => 'Heater 1', 'hint' => 'Main heating lamp'],
+                                'heater_2' => ['label' => 'Heater 2', 'hint' => 'Secondary heating lamp'],
+                                'blue_light' => ['label' => 'Blue light', 'hint' => 'Phototherapy simulation'],
+                            ] as $key => $relay)
+                                @php
+                                    $on = (bool) ($telemetry['relays'][$key] ?? false);
+                                    $override = array_key_exists($key, $relayOverrides);
+                                @endphp
+                                <div class="grid min-h-[4.5rem] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-1 border-b border-line px-3 py-3 last:border-b-0 sm:px-4">
+                                    <div class="min-w-0">
+                                        <p class="flex items-center gap-2 text-sm font-medium">
+                                            {{ $relay['label'] }}
+                                        </p>
+                                        <p class="mt-0.5 text-xs text-ink-soft">{{ $relay['hint'] }}</p>
+                                    </div>
+
+                                    <div class="flex min-w-[6.5rem] flex-col items-start gap-1">
+                                        <span data-relay-state="{{ $key }}" class="badge {{ $on ? 'badge-ok' : 'badge-neutral' }}">
+                                            <span class="status-dot" aria-hidden="true"></span>
+                                            <span data-relay-text>{{ $telemetry ? ($on ? 'On' : 'Off') : 'Unknown' }}</span>
+                                        </span>
+                                        <p data-relay-mode="{{ $key }}" class="text-[0.68rem] font-semibold {{ $override ? 'text-warn' : 'text-ink-soft' }}">
+                                            {{ $override ? 'Test override' : ($telemetry ? 'Auto' : 'Awaiting data') }}
+                                        </p>
+                                    </div>
+
+                                    <label class="relative inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-45">
+                                        <input
+                                            type="checkbox"
+                                            data-relay-toggle="{{ $key }}"
+                                            data-can-manage="{{ $canManageActuators ? 'true' : 'false' }}"
+                                            aria-describedby="relay-safety-note"
+                                            @checked($on)
+                                            @disabled(! $canManageActuators)
+                                            class="peer sr-only"
+                                        >
+                                        <span aria-hidden="true" class="relative h-6 w-11 rounded-full bg-line-strong transition-colors duration-150 before:absolute before:left-1 before:top-1 before:size-4 before:rounded-full before:bg-white before:shadow-sm before:transition-transform before:duration-150 before:ease-[var(--ease-out-quart)] peer-checked:bg-accent peer-checked:before:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"></span>
+                                        <span class="sr-only">{{ $relay['label'] }}</span>
+                                    </label>
+                                </div>
+                            @endforeach
+                        </div>
+
+                        <div class="mt-4 space-y-3 rounded-xl bg-warn-soft px-3 py-2.5">
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                <p id="relay-safety-note" class="max-w-sm text-xs leading-relaxed text-warn">
+                                    Test only. The device returns to automatic control after 60 seconds without a server response.
+                                </p>
+                                @if ($canManageActuators)
+                                    <button type="button" data-relay-auto class="btn btn-secondary min-h-10 px-3 text-xs {{ empty($relayOverrides) ? 'hidden' : '' }}" @disabled(! $canManageActuators)>
+                                        Return to auto
+                                    </button>
+                                @endif
                             </div>
+                            <p data-relay-message role="status" aria-live="polite" class="text-xs font-medium text-danger"></p>
                         </div>
                     </section>
 
@@ -264,7 +287,7 @@
 
                         <p class="mt-5 flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-xs leading-relaxed text-warn">
                             <x-icon name="alert" class="mt-px size-3.5" />
-                            <span>The ESP32 cuts heater PWM to 0% locally when a probe faults. The web view only reports that state.</span>
+                            <span>The ESP32 switches both heater relays off locally when a probe faults. The web view only reports that state.</span>
                         </p>
                     </section>
                 </div>
@@ -358,9 +381,6 @@
                 <section class="card reveal p-5" aria-labelledby="device-configuration-heading">
                     <div class="flex items-center justify-between gap-3">
                         <h2 id="device-configuration-heading" class="text-lg font-semibold">Device configuration</h2>
-                        @if ($config)
-                            <span class="badge badge-neutral">v{{ $config->config_version }}</span>
-                        @endif
                     </div>
 
                     @if ($config)
@@ -368,10 +388,6 @@
                             <div>
                                 <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Setpoint</dt>
                                 <dd class="mt-1 font-semibold tabular-nums">{{ number_format($setpoint, 1) }} °C</dd>
-                            </div>
-                            <div>
-                                <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Fan mode</dt>
-                                <dd class="mt-1 font-semibold capitalize">{{ $config->fan_mode === 'pwm' ? 'Fixed PWM' : 'Auto' }}</dd>
                             </div>
                             <div>
                                 <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">PID gains</dt>
@@ -383,13 +399,9 @@
                             </div>
                         </dl>
 
-                        <div class="mt-4 flex items-center justify-between gap-3 border-t border-line pt-3 text-xs text-ink-soft">
-                            <span class="flex items-center gap-1.5">
-                                <span class="status-dot {{ $config->applied_at ? 'bg-accent' : 'bg-warn' }}" aria-hidden="true"></span>
-                                {{ $config->applied_at ? 'Applied by device' : 'Awaiting device ACK' }}
-                            </span>
-                            <span class="tabular-nums">{{ ($config->applied_at ?? $config->updated_at)?->diffForHumans() }}</span>
-                        </div>
+                        <p class="mt-4 border-t border-line pt-3 text-xs text-ink-soft">
+                            Updated {{ $config->updated_at?->diffForHumans() }}
+                        </p>
 
                         @can('manage-config')
                             <a href="{{ route('incubators.config.edit', $incubator) }}" class="btn btn-secondary mt-4 w-full">
@@ -397,7 +409,7 @@
                             </a>
                         @endcan
                     @else
-                        <p class="mt-4 text-sm leading-relaxed text-ink-soft">No configuration version exists for this device yet.</p>
+                        <p class="mt-4 text-sm leading-relaxed text-ink-soft">No configuration exists for this device yet.</p>
                         @can('manage-config')
                             <a href="{{ route('incubators.config.edit', $incubator) }}" class="btn btn-secondary mt-4 w-full">Create configuration</a>
                         @endcan
@@ -445,6 +457,10 @@
                 telemetry: initialState.telemetry,
                 history: initialState.history ?? [],
                 sensorStatus: initialState.sensorStatus,
+                relayOverrides: initialState.relayOverrides ?? {},
+                relayPending: {},
+                relayBusy: false,
+                relayMessage: '',
                 telemetryUnavailable: false,
                 deviceStatus: @json($incubator->status),
                 updatedAt: '',
@@ -453,6 +469,11 @@
                     this.render();
                     this.poll();
                     setInterval(() => this.poll(), 2500);
+
+                    root.querySelectorAll('[data-relay-toggle]').forEach((input) => {
+                        input.addEventListener('change', () => this.setRelay(input.dataset.relayToggle, input.checked));
+                    });
+                    root.querySelector('[data-relay-auto]')?.addEventListener('click', () => this.resetRelays());
                 },
 
                 async poll() {
@@ -465,8 +486,13 @@
                         const data = await response.json();
                         this.telemetryUnavailable = false;
                         this.telemetry = data.telemetry;
+                        this.relayOverrides = data.relay_overrides ?? {};
                         this.sensorStatus = data.telemetry?.sensor_status ?? null;
                         if (data.incubator?.status) this.deviceStatus = data.incubator.status;
+
+                        for (const [key, value] of Object.entries(this.relayPending)) {
+                            if (this.telemetry?.relays?.[key] === value) delete this.relayPending[key];
+                        }
 
                         const recordedAt = data.telemetry?.recorded_at;
                         if (recordedAt && !this.history.some((point) => point.time === recordedAt)) {
@@ -484,6 +510,7 @@
                     this.renderConnection();
                     this.renderStatus();
                     this.renderReadings();
+                    this.renderRelays();
                     this.renderSensors();
                     this.renderChart();
                 },
@@ -513,8 +540,6 @@
                         temperature_object: [this.telemetry?.temperature_object, 1],
                         temperature_room: [this.telemetry?.temperature_room, 1],
                         humidity: [this.telemetry?.humidity, 1],
-                        heater_pwm: [this.telemetry?.heater_pwm, 0],
-                        fan_pwm: [this.telemetry?.fan_pwm, 0],
                     };
 
                     for (const [key, [value, digits]] of Object.entries(values)) {
@@ -530,25 +555,119 @@
                         }
                     }
 
-                    this.renderMeter('heater', this.telemetry?.heater_pwm);
-                    this.renderMeter('fan', this.telemetry?.fan_pwm);
+                },
 
-                    const led = root.querySelector('[data-led-state]');
-                    const ledText = root.querySelector('[data-led-text]');
-                    if (led && ledText) {
-                        const on = Boolean(this.telemetry?.blue_led_status);
-                        led.classList.toggle('badge-ok', on);
-                        led.classList.toggle('badge-neutral', !on);
-                        ledText.textContent = on ? 'On' : 'Off';
+                renderRelays() {
+                    const relays = this.telemetry?.relays ?? null;
+                    const overrides = this.relayOverrides ?? {};
+
+                    for (const key of ['fan', 'heater_1', 'heater_2', 'blue_light']) {
+                        const on = Object.prototype.hasOwnProperty.call(this.relayPending, key)
+                            ? this.relayPending[key]
+                            : Object.prototype.hasOwnProperty.call(overrides, key)
+                                ? overrides[key]
+                                : Boolean(relays?.[key]);
+
+                        const input = root.querySelector(`[data-relay-toggle="${key}"]`);
+                        if (input) {
+                            input.checked = on;
+                            input.disabled = !input.dataset.canManage || this.relayBusy;
+                        }
+
+                        const badge = root.querySelector(`[data-relay-state="${key}"]`);
+                        const text = badge?.querySelector('[data-relay-text]');
+                        const reportedOn = Boolean(relays?.[key]);
+                        if (badge && text) {
+                            badge.classList.toggle('badge-ok', reportedOn && relays !== null);
+                            badge.classList.toggle('badge-neutral', !reportedOn || relays === null);
+                            text.textContent = relays === null ? 'Unknown' : (reportedOn ? 'On' : 'Off');
+                        }
+
+                        const mode = root.querySelector(`[data-relay-mode="${key}"]`);
+                        if (mode) {
+                            const override = Object.prototype.hasOwnProperty.call(overrides, key);
+                            mode.textContent = override ? 'Test override' : (relays ? 'Auto' : 'Awaiting data');
+                            mode.classList.toggle('text-warn', override);
+                            mode.classList.toggle('text-ink-soft', !override);
+                        }
+                    }
+
+                    const auto = root.querySelector('[data-relay-auto]');
+                    if (auto) {
+                        auto.classList.toggle('hidden', Object.keys(overrides).length === 0);
+                        auto.disabled = this.relayBusy;
+                    }
+
+                    const message = root.querySelector('[data-relay-message]');
+                    if (message) message.textContent = this.relayMessage;
+                },
+
+                async setRelay(key, next) {
+                    const input = root.querySelector(`[data-relay-toggle="${key}"]`);
+                    if (!input || input.disabled || this.relayBusy) return;
+
+                    const previous = Object.prototype.hasOwnProperty.call(this.relayOverrides, key)
+                        ? this.relayOverrides[key]
+                        : Boolean(this.telemetry?.relays?.[key]);
+                    this.relayBusy = true;
+                    this.relayPending[key] = next;
+                    this.renderRelays();
+
+                    try {
+                        const response = await fetch(initialState.relayEndpoint, {
+                            method: 'POST',
+                            headers: this.requestHeaders(),
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ relay: key, on: next }),
+                        });
+                        if (!response.ok) throw new Error('Relay command failed');
+                        const data = await response.json();
+                        this.relayOverrides = data.overrides ?? {};
+                        delete this.relayPending[key];
+                        this.relayMessage = '';
+                        this.updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    } catch {
+                        delete this.relayPending[key];
+                        this.relayOverrides = { ...this.relayOverrides, [key]: previous };
+                        this.relayMessage = 'Relay command failed. State unchanged.';
+                    } finally {
+                        this.relayBusy = false;
+                        this.renderRelays();
                     }
                 },
 
-                renderMeter(key, pwm) {
-                    const percent = this.percent(pwm);
-                    const bar = root.querySelector(`[data-meter="${key}"]`);
-                    const label = root.querySelector(`[data-${key}-percent]`);
-                    if (bar) bar.style.width = `${percent ?? 0}%`;
-                    if (label) label.textContent = percent ?? '—';
+                async resetRelays() {
+                    const previousOverrides = this.relayOverrides;
+                    this.relayBusy = true;
+                    this.renderRelays();
+                    try {
+                        const response = await fetch(initialState.relayAutoEndpoint, {
+                            method: 'POST',
+                            headers: this.requestHeaders(),
+                            credentials: 'same-origin',
+                            body: JSON.stringify({}),
+                        });
+                        if (!response.ok) throw new Error('Relay reset failed');
+                        const data = await response.json();
+                        this.relayOverrides = data.overrides ?? {};
+                        this.relayPending = {};
+                        this.relayMessage = '';
+                        this.updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    } catch {
+                        this.relayOverrides = previousOverrides;
+                        this.relayMessage = 'Could not restore automatic control. Try again.';
+                    } finally {
+                        this.relayBusy = false;
+                        this.renderRelays();
+                    }
+                },
+
+                requestHeaders() {
+                    return {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                    };
                 },
 
                 renderSensors() {
@@ -645,11 +764,6 @@
                 number(value, digits) {
                     const numeric = Number(value);
                     return value === null || value === undefined || Number.isNaN(numeric) ? '—' : numeric.toFixed(digits);
-                },
-
-                percent(pwm) {
-                    const numeric = Number(pwm);
-                    return pwm === null || pwm === undefined || Number.isNaN(numeric) ? null : Math.round((numeric / 255) * 100);
                 },
 
                 title(value) {

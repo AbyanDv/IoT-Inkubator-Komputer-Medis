@@ -158,7 +158,7 @@
                         <p class="px-5 py-10 text-center text-sm text-ink-soft sm:px-6">No telemetry has been linked to this profile.</p>
                     @else
                         <div class="overflow-x-auto">
-                            <table class="table-base min-w-[36rem]">
+                            <table class="table-base min-w-[44rem]">
                                 <caption class="sr-only">Recent telemetry readings for {{ $baby->name }}</caption>
                                 <thead>
                                     <tr>
@@ -166,8 +166,10 @@
                                         <th scope="col">Object</th>
                                         <th scope="col">Room</th>
                                         <th scope="col">Humidity</th>
-                                        <th scope="col">Heater</th>
+                                        <th scope="col">Heater 1</th>
+                                        <th scope="col">Heater 2</th>
                                         <th scope="col">Fan</th>
+                                        <th scope="col">Blue</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -177,8 +179,10 @@
                                             <td class="tabular-nums">{{ number_format((float) $reading->temperature_object, 2) }} °C</td>
                                             <td class="tabular-nums text-ink-soft">{{ number_format((float) $reading->temperature_room, 2) }} °C</td>
                                             <td class="tabular-nums text-ink-soft">{{ number_format((float) $reading->humidity, 2) }} %</td>
-                                            <td class="tabular-nums text-ink-soft">{{ $reading->heater_pwm }} PWM</td>
-                                            <td class="tabular-nums text-ink-soft">{{ $reading->fan_pwm }} PWM</td>
+                                            <td class="tabular-nums text-ink-soft">{{ $reading->heater_1_status ? 'On' : 'Off' }}</td>
+                                            <td class="tabular-nums text-ink-soft">{{ $reading->heater_2_status ? 'On' : 'Off' }}</td>
+                                            <td class="tabular-nums text-ink-soft">{{ $reading->fan_status ? 'On' : 'Off' }}</td>
+                                            <td class="tabular-nums text-ink-soft">{{ $reading->blue_led_status ? 'On' : 'Off' }}</td>
                                         </tr>
                                     @endforeach
                                 </tbody>

@@ -5,14 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Incubator;
 use App\Services\DeviceIngestionService;
+use App\Services\RelayControlService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Response;
 
 class DeviceController extends Controller
 {
-    public function __construct(private readonly DeviceIngestionService $ingestion) {}
+    public function __construct(
+        private readonly DeviceIngestionService $ingestion,
+        private readonly RelayControlService $relays,
+    ) {}
 
     public function heartbeat(Request $request): JsonResponse
     {
@@ -37,21 +40,8 @@ class DeviceController extends Controller
         return Response::json([
             'status' => 'success',
             'config' => $config ? $this->ingestion->configPayload($config) : null,
+            'relay_overrides' => (object) $this->relays->overrides($this->incubator($request)),
         ]);
-    }
-
-    public function acknowledge(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'config_version' => ['required', 'integer', 'min:0'],
-        ]);
-        $incubator = $this->incubator($request);
-        $incubator->update(['last_config_version' => $validated['config_version']]);
-        $incubator->configs()
-            ->where('config_version', $validated['config_version'])
-            ->update(['applied_at' => Carbon::now()]);
-
-        return Response::json(['status' => 'success']);
     }
 
     private function incubator(Request $request): Incubator

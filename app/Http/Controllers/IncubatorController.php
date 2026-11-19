@@ -9,6 +9,7 @@ use App\Models\DeviceTelemetry;
 use App\Models\Incubator;
 use App\Models\User;
 use App\Services\MqttPublisher;
+use App\Services\RelayControlService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -21,7 +22,10 @@ use Illuminate\View\View;
 
 class IncubatorController extends Controller
 {
-    public function __construct(private readonly MqttPublisher $mqtt) {}
+    public function __construct(
+        private readonly MqttPublisher $mqtt,
+        private readonly RelayControlService $relays,
+    ) {}
 
     public function index(): View
     {
@@ -50,9 +54,12 @@ class IncubatorController extends Controller
                     'temperature_object' => (float) $latest->temperature_object,
                     'temperature_room' => (float) $latest->temperature_room,
                     'humidity' => (float) $latest->humidity,
-                    'heater_pwm' => $latest->heater_pwm,
-                    'fan_pwm' => $latest->fan_pwm,
-                    'blue_led_status' => $latest->blue_led_status,
+                    'relays' => [
+                        'fan' => (bool) $latest->fan_status,
+                        'heater_1' => (bool) $latest->heater_1_status,
+                        'heater_2' => (bool) $latest->heater_2_status,
+                        'blue_light' => (bool) $latest->blue_led_status,
+                    ],
                     'recorded_at' => $latest->recorded_at?->toIso8601String(),
                     'sensor_status' => $latest->raw_payload['sensor_status'] ?? null,
                 ],
@@ -70,6 +77,8 @@ class IncubatorController extends Controller
                 ->orderBy('name')
                 ->get(),
             'canManagePairing' => $user?->hasRole(['admin', 'super_admin']) ?? false,
+            'canManageActuators' => $user?->can('manage-config') ?? false,
+            'relayOverrides' => $this->relays->overrides($incubator),
         ]);
     }
 
