@@ -77,7 +77,7 @@
                                 type="button"
                                 data-pid-defaults
                                 class="btn btn-secondary min-h-8 px-3 text-xs"
-                                onclick="const form = this.closest('form'); form.querySelector('[name=pid_kp]').value='25.0'; form.querySelector('[name=pid_ki]').value='0.8'; form.querySelector('[name=pid_kd]').value='10.0';"
+                                onclick="const form = this.closest('form'); form.querySelector('[name=pid_kp]').value='40'; form.querySelector('[name=pid_ki]').value='0.5'; form.querySelector('[name=pid_kd]').value='40.0';"
                             >
                                 Reset PID defaults
                             </button>
@@ -86,9 +86,9 @@
                             Local control gains. Larger Kp reacts harder; Ki removes steady-state error; Kd damps overshoot.
                         </p>
                         <div class="mt-4 grid gap-4 sm:grid-cols-3">
-                            <x-field name="pid_kp" label="Kp" type="number" :value="$value('pid_kp', '25.0')" min="0" max="100" step="0.001" required inputmode="decimal" />
-                            <x-field name="pid_ki" label="Ki" type="number" :value="$value('pid_ki', '0.8')" min="0" max="100" step="0.001" required inputmode="decimal" />
-                            <x-field name="pid_kd" label="Kd" type="number" :value="$value('pid_kd', '10.0')" min="0" max="100" step="0.001" required inputmode="decimal" />
+                            <x-field name="pid_kp" label="Kp" type="number" :value="$value('pid_kp', '40')" min="0" max="100" step="0.001" required inputmode="decimal" />
+                            <x-field name="pid_ki" label="Ki" type="number" :value="$value('pid_ki', '0.5')" min="0" max="100" step="0.001" required inputmode="decimal" />
+                            <x-field name="pid_kd" label="Kd" type="number" :value="$value('pid_kd', '40.0')" min="0" max="100" step="0.001" required inputmode="decimal" />
                         </div>
                     </fieldset>
 
