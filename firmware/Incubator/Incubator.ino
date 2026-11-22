@@ -1,14 +1,13 @@
 // ============================================================================
 // Smart Infant Incubator — firmware ESP32 DevKit V1
 //
-// Satu file untuk Arduino IDE:
-//   1. Buka Incubator.ino, pilih board "ESP32 Dev Module".
-//   2. Isi DEVICE_CODE, WIFI_*, MQTT_PASSWORD, DEVICE_TOKEN di blok IDENTITAS,
-//      atau taruh nilainya di secrets.h (file lokal, tidak masuk git).
-//   3. Upload.
+// Satu file. Arduino IDE: board "ESP32 Dev Module", partition 1.2 MB APP.
+// Library: ArduinoJson 6.21.x, PubSubClient 2.8, DallasTemperature 3.9.x,
+// OneWire 2.3.8, DHT sensor library 1.4.6, Adafruit Unified Sensor 1.1.14,
+// LiquidCrystal I2C 1.1.2.
 //
-// Semua perhitungan berjalan di ESP32. Jaringan hanya menyimpan telemetry dan
-// mengirim config; kalau jaringan mati, PID dan fail-safe tetap jalan.
+// Semua perhitungan di ESP32. Jaringan hanya simpan telemetry dan kirim config;
+// kalau jaringan mati, PID dan fail-safe tetap jalan.
 // ============================================================================
 
 #include <Arduino.h>
@@ -34,67 +33,66 @@
 #endif
 
 // ================================ IDENTITAS =================================
-#ifndef DEVICE_CODE
-#define DEVICE_CODE "INC-001"
+#ifndef KODE_PERANGKAT
+#define KODE_PERANGKAT "INC-001"
 #endif
-#ifndef WIFI_SSID
-#define WIFI_SSID "iot-komdis"
+#ifndef SSID_WIFI
+#define SSID_WIFI "POCO X5 5G"
 #endif
-#ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "iotkomdis123"
+#ifndef PASSWORD_WIFI
+#define PASSWORD_WIFI "cobaliathplu"
 #endif
 
-// Username MQTT = kode device. ACL broker hanya membuka
-// incubator/<device_code>/*.
-#ifndef MQTT_HOST
-#define MQTT_HOST "41.216.180.77"
+// User MQTT = kode perangkat. ACL broker hanya membuka incubator/<kode>/*.
+#ifndef HOST_MQTT
+#define HOST_MQTT "41.216.180.77"
 #endif
-#ifndef MQTT_PORT
-#define MQTT_PORT 8883
+#ifndef PORT_MQTT
+#define PORT_MQTT 8883
 #endif
-#ifndef MQTT_USERNAME
-#define MQTT_USERNAME DEVICE_CODE
+#ifndef USER_MQTT
+#define USER_MQTT KODE_PERANGKAT
 #endif
-#ifndef MQTT_PASSWORD
-#define MQTT_PASSWORD ""
+#ifndef PASSWORD_MQTT
+#define PASSWORD_MQTT PASSWORD_MQTT
 #endif
-#ifndef DEVICE_TOKEN
-#define DEVICE_TOKEN ""
+#ifndef TOKEN_PERANGKAT
+#define TOKEN_PERANGKAT TOKEN_PERANGKAT
 #endif
 
 // 1 = verifikasi TLS terhadap CA di bawah. Pakai 1 di produksi.
-#ifndef TLS_VERIFY
-#define TLS_VERIFY 1
+#ifndef VERIFIKASI_TLS
+#define VERIFIKASI_TLS 1
 #endif
 
 // Fallback HTTP ke Laravel. MQTT tetap jalur utama.
-#ifndef HTTP_BASE_URL
-#define HTTP_BASE_URL "http://iot-komdis-2.test"
+#ifndef URL_HTTP
+#define URL_HTTP "http://iot-komdis-2.test"
 #endif
 
-#ifndef MQTT_KEEPALIVE_S
-#define MQTT_KEEPALIVE_S 30
+#ifndef KEEPALIVE_MQTT_DETIK
+#define KEEPALIVE_MQTT_DETIK 30
 #endif
-#ifndef MQTT_TOPIC_PREFIX
-#define MQTT_TOPIC_PREFIX "incubator"
+#ifndef AWALAN_TOPIK
+#define AWALAN_TOPIK "incubator"
 #endif
 
 // ================================== TIMING ==================================
-#ifndef TELEMETRY_INTERVAL_MS
-#define TELEMETRY_INTERVAL_MS 5000
+#ifndef INTERVAL_TELEMETRI_MS
+#define INTERVAL_TELEMETRI_MS 5000
 #endif
 
-// Override relay kedaluwarsa setelah ini tanpa sync sukses (dead-man 60 s).
-#ifndef OVERRIDE_TTL_MS
-#define OVERRIDE_TTL_MS 60000
+// Override relay mati sendiri setelah ini tanpa sync sukses (dead-man 60 s).
+#ifndef TTL_OVERRIDE_MS
+#define TTL_OVERRIDE_MS 60000
 #endif
-#ifndef NETWORK_BACKOFF_MAX_MS
-#define NETWORK_BACKOFF_MAX_MS 30000
+#ifndef BATAS_MUNDUR_MS
+#define BATAS_MUNDUR_MS 30000
 #endif
 
 // ================================== KONTROL =================================
-#ifndef DEFAULT_SETPOINT
-#define DEFAULT_SETPOINT 33.5f
+#ifndef SETPOINT_AWAL
+#define SETPOINT_AWAL 33.5f
 #endif
 
 // Batas aman untuk setpoint yang datang dari jaringan.
@@ -105,136 +103,125 @@
 #define SETPOINT_MAX 37.0f
 #endif
 
-// Di atas batas atas kedua heater mati; di bawah batas bawah probe dianggap
-// rusak, bukan dingin.
-#ifndef TRIP_HIGH_C
-#define TRIP_HIGH_C 38.5f
+// Di atas batas atas kedua pemanas mati; di bawah batas bawah probe rusak.
+#ifndef TRIP_ATAS_C
+#define TRIP_ATAS_C 38.5f
 #endif
-#ifndef TRIP_LOW_C
-#define TRIP_LOW_C 15.0f
+#ifndef TRIP_BAWAH_C
+#define TRIP_BAWAH_C 15.0f
 #endif
 
 // Histeresis staging supaya relay tidak berkedip di batas.
-#ifndef HEATER_1_ON_PCT
-#define HEATER_1_ON_PCT 5.0f
+#ifndef AMBANG_PEMANAS1_PCT
+#define AMBANG_PEMANAS1_PCT 5.0f
 #endif
-#ifndef HEATER_2_ON_PCT
-#define HEATER_2_ON_PCT 50.0f
+#ifndef AMBANG_PEMANAS2_PCT
+#define AMBANG_PEMANAS2_PCT 50.0f
 #endif
-#ifndef HEATER_HYST_PCT
-#define HEATER_HYST_PCT 3.0f
-#endif
-
-// Error penuh (K) yang memetakan ke output PID 100%. Tanpa ini gain server
-// (K-per-K) tidak akan pernah mencapai stage heater 2.
-#ifndef PID_FULL_SCALE_C
-#define PID_FULL_SCALE_C 5.0f
+#ifndef HISTERESIS_PCT
+#define HISTERESIS_PCT 3.0f
 #endif
 
-// Clamp integral dalam K. Kecil sengaja: heater hanya bisa menaikkan suhu.
-#ifndef PID_I_MIN_C
-#define PID_I_MIN_C -1.0f
+// Error penuh (K) yang memetakan ke keluaran PID 100%. Tanpa ini gain server
+// (K-per-K) tidak akan pernah mencapai stage pemanas 2.
+#ifndef SKALA_PENUH_C
+#define SKALA_PENUH_C 5.0f
 #endif
-#ifndef PID_I_MAX_C
-#define PID_I_MAX_C 1.0f
+
+// Clamp integral dalam K. Kecil sengaja: pemanas hanya bisa menaikkan suhu.
+#ifndef INTEGRAL_MIN_C
+#define INTEGRAL_MIN_C -1.0f
+#endif
+#ifndef INTEGRAL_MAX_C
+#define INTEGRAL_MAX_C 1.0f
 #endif
 
 // =================================== SENSOR =================================
-#ifndef DS18B20_PIN
-#define DS18B20_PIN 4
+#ifndef PIN_DS18B20
+#define PIN_DS18B20 4
 #endif
-#ifndef DHT22_PIN
-#define DHT22_PIN 5
+#ifndef PIN_DHT22
+#define PIN_DHT22 5
 #endif
-#ifndef DS18B20_RESOLUTION
-#define DS18B20_RESOLUTION 11
+#ifndef RESOLUSI_DS18B20
+#define RESOLUSI_DS18B20 11
 #endif
 
 // ================================== AKTUATOR ================================
-#ifndef RELAY_ACTIVE_HIGH
-#define RELAY_ACTIVE_HIGH 1
+// Board relay unit ini active-high. Board active-low: set 1 di secrets.h.
+#ifndef RELAY_AKTIF_RENDAH
+#define RELAY_AKTIF_RENDAH 0
 #endif
-#ifndef RELAY_FAN_PIN
-#define RELAY_FAN_PIN 14
+#ifndef PIN_KIPAS
+#define PIN_KIPAS 25
 #endif
-#ifndef RELAY_HEATER_1_PIN
-#define RELAY_HEATER_1_PIN 26
+#ifndef PIN_PEMANAS1
+#define PIN_PEMANAS1 26
 #endif
-#ifndef RELAY_HEATER_2_PIN
-#define RELAY_HEATER_2_PIN 27
+#ifndef PIN_PEMANAS2
+#define PIN_PEMANAS2 27
 #endif
-#ifndef RELAY_BLUE_LIGHT_PIN
-#define RELAY_BLUE_LIGHT_PIN 25
+#ifndef PIN_LAMPU
+#define PIN_LAMPU 14
 #endif
 
-#ifndef LCD_I2C_ADDR
-#define LCD_I2C_ADDR 0x27
+#ifndef ALAMAT_LCD
+#define ALAMAT_LCD 0x27
 #endif
-#ifndef LCD_SDA_PIN
-#define LCD_SDA_PIN 21
+#ifndef PIN_SDA_LCD
+#define PIN_SDA_LCD 21
 #endif
-#ifndef LCD_SCL_PIN
-#define LCD_SCL_PIN 22
+#ifndef PIN_SCL_LCD
+#define PIN_SCL_LCD 22
 #endif
 
 // =================================== DEBUG ==================================
-#ifndef FW_VERSION
-#define FW_VERSION "1.0.0"
+#ifndef VERSI_FW
+#define VERSI_FW "1.0.0"
 #endif
-#ifndef SERIAL_BAUD
-#define SERIAL_BAUD 115200
+#ifndef BAUD_SERIAL
+#define BAUD_SERIAL 115200
 #endif
 
 // ================================ MODEL DATA ================================
-// Hanya struct POD. Tidak ada alokasi, jadi queue FreeRTOS menyalin per nilai
-// dan tidak ada pointer yang bisa menggantung antar core.
+// Struct POD saja: queue FreeRTOS menyalin per nilai, tanpa pointer antar core.
 
-struct Reading {
-  float objectC;
-  float roomC;
-  float humidity;
-  bool dsOk;
-  bool dhtOk;
-
-  float setpoint;
-  float pidOutput;
-
-  bool fan;
-  bool heater1;
-  bool heater2;
-  bool blueLight;
-
-  bool tripped;
-  bool wifiDown;
-  uint32_t uptimeSeconds;
+struct Pembacaan {
+  float suhuObjek;
+  float suhuRuang;
+  float kelembapan;
+  bool objekValid;
+  bool dhtValid;
+  bool kipas;
+  bool pemanas1;
+  bool pemanas2;
+  bool lampu;
+  bool trip;
+  bool wifiMati;
+  uint32_t uptimeDetik;
 };
 
-struct Command {
+struct Perintah {
   float setpoint;
   float kp;
   float ki;
   float kd;
-  bool blueLightEnabled;
-  bool isPaired;
-  char babyCode[16];
+  bool lampuAktif;
+  bool terpasang;
+  char kodeBayi[16];
   // -1 = tanpa override, kontrol yang memutuskan. 0/1 memaksa relay.
-  int8_t overrideFan;
-  int8_t overrideHeater1;
-  int8_t overrideHeater2;
-  int8_t overrideBlueLight;
-  uint32_t receivedAtMs;
-  uint32_t expiresAtMs;
+  int8_t overrideKipas;
+  int8_t overridePemanas1;
+  int8_t overridePemanas2;
+  int8_t overrideLampu;
+  uint32_t kedaluwarsaMs;
 };
 
-enum class EventKind : uint8_t { SensorFault, Overheat, DeviceBoot, NetworkLost };
-
-struct Event {
-  EventKind kind;
-};
+enum class Kejadian : uint8_t { SensorRusak, TerlaluPanas, Boot, JaringanHilang };
 
 // ==================================== CA ====================================
 // CA broker VPS (salinan /opt/mosquitto/certs/ca.crt). Ganti isinya kalau CA
-// broker diganti, lalu upload ulang.
+// broker berubah, lalu upload ulang.
 static const char CA_CERT_PEM[] = R"CERT(
 -----BEGIN CERTIFICATE-----
 MIIFXDCCA0SgAwIBAgITVyhb2Z2TOkIf5bYTlie7ou6cNjANBgkqhkiG9w0BAQsF
@@ -270,336 +257,283 @@ QwKuZvapKlPcMXWYKbhQBYCNaXkMjGKNZ8K3NvUfwz4=
 )CERT";
 
 // ================================== KONTROL =================================
-// PID + staging relay murni. Tanpa panggilan Arduino, jadi logikanya bisa
-// diuji terpisah di compiler host.
+// PID + staging murni: tanpa panggilan Arduino, jadi matematikanya bisa diuji
+// terpisah.
 
-struct ControlState {
+struct Pid {
   float integralC = 0;
-  float previousError = 0;
-  float pidOutputPct = 0;
-  bool hasPreviousError = false;
-  bool heater1 = false;
-  bool heater2 = false;
+  float errorLalu = 0;
+  float keluaranPct = 0;
+  bool adaErrorLalu = false;
+  bool pemanas1 = false;
+  bool pemanas2 = false;
 };
 
-float clampf(float value, float low, float high) {
-  if (value < low) {
-    return low;
-  }
-  if (value > high) {
-    return high;
-  }
-  return value;
+float batasi(float nilai, float bawah, float atas) {
+  return nilai < bawah ? bawah : (nilai > atas ? atas : nilai);
 }
 
-// Stage hanya mati setelah output turun HEATER_HYST_PCT di bawah ambangnya,
+// Stage hanya mati setelah keluaran turun HISTERESIS_PCT di bawah ambangnya,
 // jadi nilai di batas tidak membuat relay berkedip.
-bool stageActive(float outputPct, float thresholdPct, bool current) {
-  if (current) {
-    return outputPct > thresholdPct - HEATER_HYST_PCT;
-  }
-  return outputPct >= thresholdPct;
+bool tahapAktif(float keluaranPct, float ambangPct, bool sekarang) {
+  return sekarang ? keluaranPct > ambangPct - HISTERESIS_PCT : keluaranPct >= ambangPct;
 }
 
-void controlClear(ControlState &state) {
-  state.integralC = 0;
-  state.pidOutputPct = 0;
-  state.heater1 = false;
-  state.heater2 = false;
+void kosongkanPid(Pid &pid) {
+  pid.integralC = 0;
+  pid.keluaranPct = 0;
+  pid.pemanas1 = false;
+  pid.pemanas2 = false;
 }
 
-void controlReset(ControlState &state) {
-  controlClear(state);
-  state.previousError = 0;
-  state.hasPreviousError = false;
-}
-
-// dtSeconds = periode kontrol nyata dari pemanggil, supaya integral dan
-// turunan tidak melonjak setelah loop sempat tertahan.
-void controlStep(ControlState &state, float objectC, bool objectValid, float dtSeconds,
-                 const Command &cmd) {
-  if (!objectValid) {
-    // Tanpa bacaan yang bisa dipercaya, tidak ada panas.
-    controlClear(state);
-    state.hasPreviousError = false;
+// dt = periode kontrol nyata dari pemanggil, supaya integral dan turunan tidak
+// melonjak setelah loop sempat tertahan.
+void langkahPid(Pid &pid, float suhu, bool valid, float dt, const Perintah &perintah) {
+  // Tanpa bacaan yang bisa dipercaya, atau di luar rentang masuk akal, tidak
+  // ada panas.
+  if (!valid || suhu > TRIP_ATAS_C || suhu < TRIP_BAWAH_C) {
+    kosongkanPid(pid);
+    pid.adaErrorLalu = false;
     return;
   }
 
-  // Dua ekstrem sama-sama tidak aman: terlalu panas, atau jauh di bawah suhu
-  // inkubator mana pun berarti probe rusak.
-  if (objectC > TRIP_HIGH_C || objectC < TRIP_LOW_C) {
-    controlClear(state);
-    state.hasPreviousError = false;
-    return;
+  const float setpoint = batasi(perintah.setpoint, SETPOINT_MIN, SETPOINT_MAX);
+  const float error = setpoint - suhu;
+
+  // Integral dalam kelvin, lalu seluruh suku diskalakan SKALA_PENUH_C supaya
+  // kp/ki/kd tetap berarti seperti di UI server.
+  pid.integralC = batasi(pid.integralC + perintah.ki * error * dt, INTEGRAL_MIN_C, INTEGRAL_MAX_C);
+
+  // Turunan dilewati pada sampel pertama: dt belum diketahui dan slope karangan
+  // akan menyentak pemanas.
+  float turunan = 0;
+  if (pid.adaErrorLalu && dt > 0.0f) {
+    turunan = (error - pid.errorLalu) / dt;
   }
+  pid.errorLalu = error;
+  pid.adaErrorLalu = true;
 
-  const float setpoint = clampf(cmd.setpoint, SETPOINT_MIN, SETPOINT_MAX);
-  const float error = setpoint - objectC;
-
-  // Integral disimpan dalam kelvin, lalu seluruh suku diskalakan
-  // PID_FULL_SCALE_C supaya kp/ki/kd tetap berarti seperti di UI server.
-  state.integralC = clampf(state.integralC + cmd.ki * error * dtSeconds, PID_I_MIN_C, PID_I_MAX_C);
-
-  // Turunan dilewati pada sampel pertama setelah reset: dt belum diketahui dan
-  // slope karangan akan menyentak heater.
-  float derivative = 0;
-  if (state.hasPreviousError && dtSeconds > 0.0f) {
-    derivative = (error - state.previousError) / dtSeconds;
-  }
-  state.previousError = error;
-  state.hasPreviousError = true;
-
-  const float output = clampf((cmd.kp * error + state.integralC + cmd.kd * derivative) *
-                                  (100.0f / PID_FULL_SCALE_C),
-                              0.0f, 100.0f);
-  state.pidOutputPct = output;
-
-  state.heater1 = stageActive(output, HEATER_1_ON_PCT, state.heater1);
-  state.heater2 = stageActive(output, HEATER_2_ON_PCT, state.heater2);
+  pid.keluaranPct =
+      batasi((perintah.kp * error + pid.integralC + perintah.kd * turunan) * (100.0f / SKALA_PENUH_C),
+             0.0f, 100.0f);
+  pid.pemanas1 = tahapAktif(pid.keluaranPct, AMBANG_PEMANAS1_PCT, pid.pemanas1);
+  pid.pemanas2 = tahapAktif(pid.keluaranPct, AMBANG_PEMANAS2_PCT, pid.pemanas2);
 }
 
 // =================================== SENSOR =================================
 // DS18B20 + DHT22, keduanya dibaca tanpa memblokir loop kontrol.
 
-static OneWire gWire(DS18B20_PIN);
-static DallasTemperature gDs(&gWire);
-static DHT gDht(DHT22_PIN, DHT22);
+static OneWire kawatSuhu(PIN_DS18B20);
+static DallasTemperature sensorObjek(&kawatSuhu);
+static DHT sensorDht(PIN_DHT22, DHT22);
 
-static bool gDsConversionPending = false;
-static uint32_t gDsConversionStartedMs = 0;
-static uint32_t gDhtRequestedMs = 0;
-static uint32_t gDhtRetryAfterMs = 0;
+static bool konversiJalan = false;
+static uint32_t konversiMulaiMs = 0;
+static uint32_t dhtDimintaMs = 0;
+static uint32_t dhtCobaLagiMs = 0;
 
 // Waktu konversi Dallas per resolusi 9..12 bit, diindeks (resolusi - 9).
-static const uint16_t kConversionMs[] = {94, 188, 375, 750};
+static const uint16_t WAKTU_KONVERSI_MS[] = {94, 188, 375, 750};
 
-static float gObjectC = 0;
-static bool gObjectOk = false;
-static float gRoomC = 0;
-static float gHumidity = 0;
-static bool gDhtOk = false;
+static float suhuObjekC = 0;
+static bool objekValid = false;
+static float suhuRuangC = 0;
+static float kelembapanPct = 0;
+static bool dhtValid = false;
 // uint32_t: penghitung poll bisa berjalan berhari-hari tanpa wrap.
-static uint32_t gPolls = 0;
+static uint32_t jumlahPoll = 0;
 
-void sensorsBegin() {
-  gDs.setWaitForConversion(false);
-  gDs.begin();
-  gDs.setResolution(DS18B20_RESOLUTION);
-  gDht.begin();
+void mulaiSensor() {
+  sensorObjek.setWaitForConversion(false);
+  sensorObjek.begin();
+  sensorObjek.setResolution(RESOLUSI_DS18B20);
+  sensorDht.begin();
 }
 
-void sensorsPoll(uint32_t nowMs) {
-  ++gPolls;
+void pollSensor(uint32_t ms) {
+  ++jumlahPoll;
 
-  // DS18B20: minta dan baca di poll berbeda, jadi konversi 375 ms tidak
-  // menahan loop kontrol.
-  if (!gDsConversionPending) {
-    gDs.requestTemperatures();
-    gDsConversionPending = true;
-    gDsConversionStartedMs = nowMs;
-  } else {
-    const uint8_t index = constrain(DS18B20_RESOLUTION, 9, 12) - 9;
-    if (nowMs - gDsConversionStartedMs >= kConversionMs[index]) {
-      gDsConversionPending = false;
-      const float value = gDs.getTempCByIndex(0);
-      // -127 = probe terlepas, 85 = nilai register saat power-on. Keduanya
-      // bukan suhu yang mungkin dilihat inkubator ini.
-      gObjectOk = value > TRIP_LOW_C - 5.0f && value < 84.0f;
-      if (gObjectOk) {
-        gObjectC = value;
-      }
+  // DS18B20: minta dan baca di poll berbeda, jadi konversi 375 ms tidak menahan
+  // loop kontrol.
+  if (!konversiJalan) {
+    sensorObjek.requestTemperatures();
+    konversiJalan = true;
+    konversiMulaiMs = ms;
+  } else if (ms - konversiMulaiMs >= WAKTU_KONVERSI_MS[constrain(RESOLUSI_DS18B20, 9, 12) - 9]) {
+    konversiJalan = false;
+    const float nilai = sensorObjek.getTempCByIndex(0);
+    // -127 = probe terlepas, 85 = nilai register saat power-on. Keduanya bukan
+    // suhu yang mungkin dilihat inkubator ini.
+    objekValid = nilai > TRIP_BAWAH_C - 5.0f && nilai < 84.0f;
+    if (objekValid) {
+      suhuObjekC = nilai;
     }
   }
 
   // DHT22 butuh 2 s antar pembacaan; kegagalan di-backoff supaya sensor hilang
   // tidak membuat loop menunggu timeout berulang.
-  if (gDhtRetryAfterMs != 0) {
-    if (nowMs < gDhtRetryAfterMs) {
+  if (dhtCobaLagiMs != 0) {
+    if (ms < dhtCobaLagiMs) {
       return;
     }
-    gDhtRetryAfterMs = 0;
+    dhtCobaLagiMs = 0;
   }
-  if (nowMs - gDhtRequestedMs < 2500) {
+  if (ms - dhtDimintaMs < 2500) {
     return;
   }
-  gDhtRequestedMs = nowMs;
+  dhtDimintaMs = ms;
 
-  const float room = gDht.readTemperature();
-  const float humidity = gDht.readHumidity();
-  if (isnan(room) || isnan(humidity) || room < 10.0f || room > 45.0f || humidity < 5.0f ||
-      humidity > 99.0f) {
-    gDhtOk = false;
-    gDhtRetryAfterMs = nowMs + 30000;
+  const float ruang = sensorDht.readTemperature();
+  const float lembap = sensorDht.readHumidity();
+  if (isnan(ruang) || isnan(lembap) || ruang < 10.0f || ruang > 45.0f || lembap < 5.0f ||
+      lembap > 99.0f) {
+    dhtValid = false;
+    dhtCobaLagiMs = ms + 30000;
     return;
   }
-  gRoomC = room;
-  gHumidity = humidity;
-  gDhtOk = true;
+  suhuRuangC = ruang;
+  kelembapanPct = lembap;
+  dhtValid = true;
 }
-
-float sensorsObjectC() { return gObjectC; }
-bool sensorsObjectOk() { return gObjectOk; }
-float sensorsRoomC() { return gRoomC; }
-float sensorsHumidity() { return gHumidity; }
-bool sensorsDhtReady() { return gDhtOk; }
 
 // True setelah kedua sensor memberi sampel, atau setelah ~2000 poll, supaya
-// sensor yang hilang tidak membuat device diam selamanya.
-bool sensorsWarm() { return (gObjectOk && gDhtOk) || gPolls > 2000; }
+// sensor yang hilang tidak membuat perangkat diam selamanya.
+bool sensorSiap() { return (objekValid && dhtValid) || jumlahPoll > 2000; }
 
 // ================================== RELAY ===================================
-// Satu tabel: menambah relay cukup satu baris dan satu field di Reading.
+// Satu tabel: menambah relay cukup satu baris dan satu field di Pembacaan.
 
-static const uint8_t kRelayPins[] = {RELAY_FAN_PIN, RELAY_HEATER_1_PIN, RELAY_HEATER_2_PIN,
-                                     RELAY_BLUE_LIGHT_PIN};
+static const uint8_t PIN_RELAY[] = {PIN_KIPAS, PIN_PEMANAS1, PIN_PEMANAS2, PIN_LAMPU};
 
-// Board active-low menarik koil saat pin LOW. Menulis level tidak-aktif sebelum
-// pinMode mencegah relay berbunyi saat power-on.
-void relayWrite(uint8_t pin, bool on) {
-  digitalWrite(pin, (RELAY_ACTIVE_HIGH ? on : !on) ? HIGH : LOW);
+// Menulis level tidak-aktif sebelum pinMode mencegah relay berbunyi saat
+// power-on.
+void tulisRelay(uint8_t pin, bool nyala) {
+  digitalWrite(pin, (RELAY_AKTIF_RENDAH ? !nyala : nyala) ? HIGH : LOW);
 }
 
-void relaysBegin() {
-  for (uint8_t pin : kRelayPins) {
-    relayWrite(pin, false);
+void mulaiRelay() {
+  for (uint8_t pin : PIN_RELAY) {
+    tulisRelay(pin, false);
     pinMode(pin, OUTPUT);
-    relayWrite(pin, false);
+    tulisRelay(pin, false);
   }
 }
 
-void relaysApply(const Reading &r) {
-  const bool states[] = {r.fan, r.heater1, r.heater2, r.blueLight};
-  for (size_t i = 0; i < sizeof(kRelayPins); ++i) {
-    relayWrite(kRelayPins[i], states[i]);
+void terapkanRelay(const Pembacaan &p) {
+  const bool keadaan[] = {p.kipas, p.pemanas1, p.pemanas2, p.lampu};
+  for (size_t i = 0; i < sizeof(PIN_RELAY); ++i) {
+    tulisRelay(PIN_RELAY[i], keadaan[i]);
   }
 }
 
-// Fan nyala, kedua heater mati. Sirkulasi adalah kondisi aman untuk inkubator
-// tertutup.
-void relaysForceSafe() {
-  relayWrite(RELAY_FAN_PIN, true);
-  relayWrite(RELAY_HEATER_1_PIN, false);
-  relayWrite(RELAY_HEATER_2_PIN, false);
+// Sirkulasi adalah kondisi aman untuk inkubator tertutup: kipas nyala, pemanas
+// mati.
+void relayAman() {
+  tulisRelay(PIN_KIPAS, true);
+  tulisRelay(PIN_PEMANAS1, false);
+  tulisRelay(PIN_PEMANAS2, false);
 }
 
 // =================================== LCD ====================================
 // Buffer tetap, bukan String: tidak ada alokasi heap per frame LCD.
 
-static LiquidCrystal_I2C gLcd(LCD_I2C_ADDR, 16, 2);
-static char gLcdLine1[17] = {0};
-static char gLcdLine2[17] = {0};
+static LiquidCrystal_I2C lcd(ALAMAT_LCD, 16, 2);
+static char baris1Lama[17] = {0};
+static char baris2Lama[17] = {0};
 
-void lcdWriteLine(uint8_t row, const char *text) {
+void tulisBarisLcd(uint8_t baris, const char *teks) {
   // Pad ke 16 karakter supaya sisa teks lama ikut terhapus.
-  char padded[17];
-  snprintf(padded, sizeof(padded), "%-16.16s", text);
-  gLcd.setCursor(0, row);
-  gLcd.print(padded);
+  char padat[17];
+  snprintf(padat, sizeof(padat), "%-16.16s", teks);
+  lcd.setCursor(0, baris);
+  lcd.print(padat);
 }
 
-void lcdBegin() {
-  Wire.begin(LCD_SDA_PIN, LCD_SCL_PIN);
-  gLcd.init();
-  gLcd.backlight();
-  gLcd.clear();
+void mulaiLcd() {
+  Wire.begin(PIN_SDA_LCD, PIN_SCL_LCD);
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
 }
 
-void lcdSelfTest() {
-  gLcd.clear();
-  gLcd.setCursor(0, 0);
-  gLcd.print("INCUBATOR");
-  gLcd.setCursor(0, 1);
-  gLcd.print(FW_VERSION);
+void ujiLcd() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("INCUBATOR");
+  lcd.setCursor(0, 1);
+  lcd.print(VERSI_FW);
 }
 
 // Panel ada di bus I2C lambat; redraw tiap loop lebih mahal daripada loop
 // kontrolnya sendiri.
-void lcdRender(const char *line1, const char *line2) {
-  if (strcmp(line1, gLcdLine1) == 0 && strcmp(line2, gLcdLine2) == 0) {
+void gambarLcd(const char *baris1, const char *baris2) {
+  if (strcmp(baris1, baris1Lama) == 0 && strcmp(baris2, baris2Lama) == 0) {
     return;
   }
-  strncpy(gLcdLine1, line1, sizeof(gLcdLine1) - 1);
-  strncpy(gLcdLine2, line2, sizeof(gLcdLine2) - 1);
-  lcdWriteLine(0, gLcdLine1);
-  lcdWriteLine(1, gLcdLine2);
+  strncpy(baris1Lama, baris1, sizeof(baris1Lama) - 1);
+  strncpy(baris2Lama, baris2, sizeof(baris2Lama) - 1);
+  tulisBarisLcd(0, baris1Lama);
+  tulisBarisLcd(1, baris2Lama);
 }
 
-// ================================== BRIDGE ==================================
-// Satu-satunya jalur antar core. Semua yang lewat sini salinan nilai struct
-// POD, jadi tidak perlu lock dan tidak ada pointer menggantung.
-//
-// Satu slot per jalur: producer menimpa, consumer mengambil yang terbaru, jadi
-// sampel basi tidak pernah menumpuk.
+// ================================== JEMBATAN ================================
+// Satu-satunya jalur antar core: salinan nilai POD, tanpa lock. Satu slot per
+// jalur, producer menimpa, consumer mengambil yang terbaru.
 
-static QueueHandle_t gReadingQueue = nullptr;
-static QueueHandle_t gCommandQueue = nullptr;
-static QueueHandle_t gEventQueue = nullptr;
+static QueueHandle_t antreanBacaan = nullptr;
+static QueueHandle_t antreanPerintah = nullptr;
+static QueueHandle_t antreanKejadian = nullptr;
 
-void bridgeBegin() {
-  gReadingQueue = xQueueCreate(1, sizeof(Reading));
-  gCommandQueue = xQueueCreate(1, sizeof(Command));
-  gEventQueue = xQueueCreate(4, sizeof(Event));
+void mulaiJembatan() {
+  antreanBacaan = xQueueCreate(1, sizeof(Pembacaan));
+  antreanPerintah = xQueueCreate(1, sizeof(Perintah));
+  antreanKejadian = xQueueCreate(4, sizeof(Kejadian));
 }
 
-void bridgePublishReading(const Reading &reading) { xQueueOverwrite(gReadingQueue, &reading); }
+void kirimBacaan(const Pembacaan &p) { xQueueOverwrite(antreanBacaan, &p); }
 
-bool bridgeTakeReading(Reading &out, uint32_t waitMs) {
-  return xQueueReceive(gReadingQueue, &out, pdMS_TO_TICKS(waitMs)) == pdTRUE;
-}
+bool ambilBacaan(Pembacaan &p) { return xQueueReceive(antreanBacaan, &p, 0) == pdTRUE; }
 
-void bridgePublishCommand(const Command &command) { xQueueOverwrite(gCommandQueue, &command); }
+void kirimPerintah(const Perintah &p) { xQueueOverwrite(antreanPerintah, &p); }
 
-bool bridgeTakeCommand(Command &out) {
-  return xQueueReceive(gCommandQueue, &out, 0) == pdTRUE;
-}
+bool ambilPerintah(Perintah &p) { return xQueueReceive(antreanPerintah, &p, 0) == pdTRUE; }
 
-void bridgePublishEvent(EventKind kind) {
-  const Event event{kind};
-  // Event jarang; queue penuh membuang yang baru, bukan memblokir core kontrol.
-  xQueueSend(gEventQueue, &event, 0);
-}
+// Kejadian jarang; queue penuh membuang yang baru, bukan memblokir core kontrol.
+void kirimKejadian(Kejadian k) { xQueueSend(antreanKejadian, &k, 0); }
 
-bool bridgeTakeEvent(EventKind &out) {
-  Event event{};
-  if (xQueueReceive(gEventQueue, &event, 0) != pdTRUE) {
-    return false;
-  }
-  out = event.kind;
-  return true;
-}
+bool ambilKejadian(Kejadian &k) { return xQueueReceive(antreanKejadian, &k, 0) == pdTRUE; }
 
 // ================================= PROTOKOL =================================
-// Kontrak wire dengan Laravel di satu tempat: kedua transport mem-parse JSON
-// yang sama dan membangun body telemetry yang sama.
+// Kontrak wire dengan Laravel di satu tempat: kedua transport memakai parser dan
+// body yang sama.
 
-int8_t overrideFlag(JsonObject overrides, const char *key) {
-  if (!overrides[key].is<bool>()) {
+int8_t flagOverride(JsonObject override, const char *kunci) {
+  if (!override[kunci].is<bool>()) {
     return -1;
   }
-  return overrides[key].as<bool>() ? 1 : 0;
+  return override[kunci].as<bool>() ? 1 : 0;
 }
 
-Command protocolDefaultCommand() {
-  Command cmd{};
-  cmd.setpoint = DEFAULT_SETPOINT;
-  cmd.kp = 2.0f;
-  cmd.ki = 0.1f;
-  cmd.kd = 0.5f;
-  cmd.blueLightEnabled = false;
-  cmd.isPaired = false;
-  cmd.babyCode[0] = '\0';
-  cmd.overrideFan = -1;
-  cmd.overrideHeater1 = -1;
-  cmd.overrideHeater2 = -1;
-  cmd.overrideBlueLight = -1;
-  cmd.receivedAtMs = 0;
-  cmd.expiresAtMs = 0;
-  return cmd;
+Perintah perintahAwal() {
+  Perintah p{};
+  p.setpoint = SETPOINT_AWAL;
+  p.kp = 2.0f;
+  p.ki = 0.1f;
+  p.kd = 0.5f;
+  p.lampuAktif = false;
+  p.terpasang = false;
+  p.kodeBayi[0] = '\0';
+  p.overrideKipas = -1;
+  p.overridePemanas1 = -1;
+  p.overridePemanas2 = -1;
+  p.overrideLampu = -1;
+  p.kedaluwarsaMs = 0;
+  return p;
 }
 
 // Key yang tidak ada mempertahankan nilai lama, jadi payload parsial tidak bisa
 // mereset controller.
-void protocolApply(const char *body, Command &cmd) {
+void terapkanJson(const char *body, Perintah &p) {
   StaticJsonDocument<512> doc;
   if (deserializeJson(doc, body) != DeserializationError::Ok) {
     return;
@@ -607,67 +541,64 @@ void protocolApply(const char *body, Command &cmd) {
 
   JsonObject config = doc["config"].as<JsonObject>();
   if (!config.isNull()) {
-    cmd.setpoint = config["temperature_setpoint"] | cmd.setpoint;
-    cmd.kp = config["pid_kp"] | cmd.kp;
-    cmd.ki = config["pid_ki"] | cmd.ki;
-    cmd.kd = config["pid_kd"] | cmd.kd;
-    cmd.blueLightEnabled = config["blue_led_enabled"] | cmd.blueLightEnabled;
+    p.setpoint = config["temperature_setpoint"] | p.setpoint;
+    p.kp = config["pid_kp"] | p.kp;
+    p.ki = config["pid_ki"] | p.ki;
+    p.kd = config["pid_kd"] | p.kd;
+    p.lampuAktif = config["blue_led_enabled"] | p.lampuAktif;
   }
 
-  cmd.isPaired = doc["is_paired"] | cmd.isPaired;
-  JsonObject baby = doc["baby"].as<JsonObject>();
-  const char *code = baby.isNull() ? "" : baby["code"].as<const char *>();
-  strncpy(cmd.babyCode, code == nullptr ? "" : code, sizeof(cmd.babyCode) - 1);
-  cmd.babyCode[sizeof(cmd.babyCode) - 1] = '\0';
+  p.terpasang = doc["is_paired"] | p.terpasang;
+  JsonObject bayi = doc["baby"].as<JsonObject>();
+  const char *kode = bayi.isNull() ? "" : bayi["code"].as<const char *>();
+  strncpy(p.kodeBayi, kode == nullptr ? "" : kode, sizeof(p.kodeBayi) - 1);
+  p.kodeBayi[sizeof(p.kodeBayi) - 1] = '\0';
 
   // Server selalu mengirim objek ini, kosong saat tidak ada override, jadi
   // objek kosong berarti "kembali ke auto", bukan field yang hilang.
-  JsonObject overrides = doc["relay_overrides"].as<JsonObject>();
-  if (!overrides.isNull()) {
-    cmd.overrideFan = overrideFlag(overrides, "fan");
-    cmd.overrideHeater1 = overrideFlag(overrides, "heater_1");
-    cmd.overrideHeater2 = overrideFlag(overrides, "heater_2");
-    cmd.overrideBlueLight = overrideFlag(overrides, "blue_light");
+  JsonObject override = doc["relay_overrides"].as<JsonObject>();
+  if (!override.isNull()) {
+    p.overrideKipas = flagOverride(override, "fan");
+    p.overridePemanas1 = flagOverride(override, "heater_1");
+    p.overridePemanas2 = flagOverride(override, "heater_2");
+    p.overrideLampu = flagOverride(override, "blue_light");
   }
 }
 
-String protocolTelemetryBody(const Reading &r) {
+// Body telemetry untuk POST /api/devices/telemetry dan topik telemetry. Bentuk
+// identik di kedua jalur. Ditulis ke buffer pemanggil: tanpa String, tanpa heap.
+size_t bodyTelemetri(const Pembacaan &p, char *keluaran, size_t ukuran) {
   StaticJsonDocument<384> doc;
-  doc["device_code"] = DEVICE_CODE;
-  // -127 = probe DS18B20 terlepas; server menyimpannya apa adanya dan membaca
-  // fault dari sensor_status.
-  // Dua desimal: resolusi sensor 0.0625 C, kolom Laravel decimal(5,2).
-  doc["temperature_object"] = r.dsOk ? roundf(r.objectC * 100.0f) / 100.0f : -127.0f;
-  doc["temperature_room"] = roundf(r.roomC * 100.0f) / 100.0f;
-  doc["humidity"] = roundf(r.humidity * 10.0f) / 10.0f;
-  JsonObject relayJson = doc.createNestedObject("relays");
-  relayJson["fan"] = r.fan;
-  relayJson["heater_1"] = r.heater1;
-  relayJson["heater_2"] = r.heater2;
-  relayJson["blue_light"] = r.blueLight;
-  JsonObject sensorJson = doc.createNestedObject("sensor_status");
-  sensorJson["ds18b20"] = r.dsOk;
-  sensorJson["dht22"] = r.dhtOk;
+  doc["device_code"] = KODE_PERANGKAT;
+  // -127 = probe terlepas; server menyimpannya apa adanya dan membaca fault
+  // dari sensor_status. Dua desimal: resolusi 0.0625 C, kolom decimal(5,2).
+  doc["temperature_object"] = p.objekValid ? roundf(p.suhuObjek * 100.0f) / 100.0f : -127.0f;
+  doc["temperature_room"] = roundf(p.suhuRuang * 100.0f) / 100.0f;
+  doc["humidity"] = roundf(p.kelembapan * 10.0f) / 10.0f;
+  JsonObject relay = doc.createNestedObject("relays");
+  relay["fan"] = p.kipas;
+  relay["heater_1"] = p.pemanas1;
+  relay["heater_2"] = p.pemanas2;
+  relay["blue_light"] = p.lampu;
+  JsonObject status = doc.createNestedObject("sensor_status");
+  status["ds18b20"] = p.objekValid;
+  status["dht22"] = p.dhtValid;
   // Tanpa timestamp: Laravel yang menstempel, jamnya lebih baik daripada ESP32
   // yang belum pernah menerima NTP.
-  doc["uptime_s"] = r.uptimeSeconds;
-  String body;
-  serializeJson(doc, body);
-  return body;
+  doc["uptime_s"] = p.uptimeDetik;
+  return serializeJson(doc, keluaran, ukuran);
 }
 
-String protocolStatusBody(bool online) {
+size_t bodyStatus(bool online, char *keluaran, size_t ukuran) {
   StaticJsonDocument<64> doc;
   doc["online"] = online;
-  String body;
-  serializeJson(doc, body);
-  return body;
+  return serializeJson(doc, keluaran, ukuran);
 }
 
 // =================================== TLS ====================================
 
-void tlsConfigure(WiFiClientSecure &client) {
-  if (TLS_VERIFY) {
+void pasangTls(WiFiClientSecure &client) {
+  if (VERIFIKASI_TLS) {
     client.setCACert(CA_CERT_PEM);
     return;
   }
@@ -675,257 +606,252 @@ void tlsConfigure(WiFiClientSecure &client) {
 }
 
 // ================================= TRANSPORT ================================
-// Sisi Core 0: satu Wi-Fi station, dua transport, satu kontrak JSON.
-//
-// MQTT utama (satu socket, sync retained, event, last-will status). HTTP
-// `POST /api/devices/telemetry` cadangan sesuai PRD, dan responsnya membawa
-// payload sync yang sama.
+// Sisi Core 0: satu Wi-Fi station, dua transport, satu kontrak JSON. MQTT utama
+// (satu socket, sync retained, event, last-will status); HTTP cadangan.
 
-static WiFiClientSecure gTls;
-static HTTPClient gHttp;
-static PubSubClient gMqtt(gTls);
+static WiFiClientSecure tls;
+static HTTPClient http;
+static PubSubClient mqtt(tls);
 
-static char gTopicSync[64] = "";
-static char gTopicTelemetry[64] = "";
-static char gTopicEvents[64] = "";
-static char gTopicStatus[64] = "";
+static char topikSinkron[64] = "";
+static char topikTelemetri[64] = "";
+static char topikKejadian[64] = "";
+static char topikStatus[64] = "";
 
-static uint32_t gBackoffUntilMs = 0;
-static uint16_t gBackoffMs = 0;
-static uint16_t gHttpPort = 0;
-static String gHttpHost;
+static uint32_t mundurSampaiMs = 0;
+static uint16_t mundurMs = 0;
+static uint16_t portHttp = 0;
+static String hostHttp;
 
 // Command terakhir yang berhasil diantar transport mana pun. Payload parsial
 // digabung ke sini, jadi respons tanpa `relay_overrides` tidak menghapus
 // override yang sedang aktif.
-static Command gLastCommand{};
+static Perintah perintahTerakhir{};
 
-void buildTopic(char *out, size_t size, const char *suffix) {
-  snprintf(out, size, "%s/%s/%s", MQTT_TOPIC_PREFIX, DEVICE_CODE, suffix);
+void buatTopik(char *keluaran, size_t ukuran, const char *akhiran) {
+  snprintf(keluaran, ukuran, "%s/%s/%s", AWALAN_TOPIK, KODE_PERANGKAT, akhiran);
 }
 
-// HTTP_BASE_URL dipecah sekali saat boot: kerja String per request membuang
-// heap.
-void parseBaseUrl() {
-  const char *url = HTTP_BASE_URL;
-  const char *authority = strstr(url, "://");
-  gHttpHost = String(authority == nullptr ? url : authority + 3);
-  const bool tls = authority != nullptr && strncmp(url, "https", 5) == 0;
-  const int colon = gHttpHost.indexOf(':');
-  gHttpPort =
-      colon < 0 ? (tls ? 443 : 80) : static_cast<uint16_t>(gHttpHost.substring(colon + 1).toInt());
-  if (colon >= 0) {
-    gHttpHost.remove(colon);
+// URL_HTTP dipecah sekali saat boot: kerja String per request membuang heap.
+void uraiUrl() {
+  const char *url = URL_HTTP;
+  const char *awal = strstr(url, "://");
+  hostHttp = String(awal == nullptr ? url : awal + 3);
+  const bool aman = awal != nullptr && strncmp(url, "https", 5) == 0;
+  const int titikDua = hostHttp.indexOf(':');
+  portHttp = titikDua < 0 ? (aman ? 443 : 80)
+                          : static_cast<uint16_t>(hostHttp.substring(titikDua + 1).toInt());
+  if (titikDua >= 0) {
+    hostHttp.remove(titikDua);
   }
 }
 
-void transportAccept(const char *body) {
-  protocolApply(body, gLastCommand);
-  gLastCommand.receivedAtMs = millis();
-  gLastCommand.expiresAtMs = gLastCommand.receivedAtMs + OVERRIDE_TTL_MS;
-  bridgePublishCommand(gLastCommand);
+void terimaSinkron(const char *body) {
+  terapkanJson(body, perintahTerakhir);
+  perintahTerakhir.kedaluwarsaMs = millis() + TTL_OVERRIDE_MS;
+  kirimPerintah(perintahTerakhir);
 }
 
-void mqttOnSync(char *topicName, byte *payload, unsigned int length) {
-  (void)topicName;
+void saatPesanMasuk(char *topik, byte *payload, unsigned int panjang) {
+  (void)topik;
   // Sync retained ukurannya kecil; buffer stack supaya callback tidak menyentuh
   // heap.
   char body[512] = {0};
-  const size_t copy = length < sizeof(body) - 1 ? length : sizeof(body) - 1;
-  memcpy(body, payload, copy);
-  transportAccept(body);
+  const size_t salin = panjang < sizeof(body) - 1 ? panjang : sizeof(body) - 1;
+  memcpy(body, payload, salin);
+  terimaSinkron(body);
 }
 
-void transportBackoff(uint32_t nowMs) {
-  gBackoffMs = gBackoffMs == 0
-                   ? 2000
-                   : static_cast<uint16_t>(min<uint32_t>(gBackoffMs * 2U, NETWORK_BACKOFF_MAX_MS));
-  gBackoffUntilMs = nowMs + gBackoffMs;
+void jadwalkanMundur(uint32_t ms) {
+  const uint32_t batas = BATAS_MUNDUR_MS;
+  const uint32_t berikut = mundurMs == 0 ? 2000U : static_cast<uint32_t>(mundurMs) * 2U;
+  mundurMs = berikut < batas ? berikut : batas;
+  mundurSampaiMs = ms + mundurMs;
 }
 
-void transportBegin() {
-  buildTopic(gTopicSync, sizeof(gTopicSync), "sync");
-  buildTopic(gTopicTelemetry, sizeof(gTopicTelemetry), "telemetry");
-  buildTopic(gTopicEvents, sizeof(gTopicEvents), "events");
-  buildTopic(gTopicStatus, sizeof(gTopicStatus), "status");
+void mulaiTransport() {
+  buatTopik(topikSinkron, sizeof(topikSinkron), "sync");
+  buatTopik(topikTelemetri, sizeof(topikTelemetri), "telemetry");
+  buatTopik(topikKejadian, sizeof(topikKejadian), "events");
+  buatTopik(topikStatus, sizeof(topikStatus), "status");
 
-  parseBaseUrl();
-  gLastCommand = protocolDefaultCommand();
+  uraiUrl();
+  perintahTerakhir = perintahAwal();
+  pasangTls(tls);
 
-  tlsConfigure(gTls);
+  http.setTimeout(4000);
+  http.setReuse(true);
 
-  gHttp.setTimeout(4000);
-  gHttp.setReuse(true);
-
-  gMqtt.setServer(MQTT_HOST, MQTT_PORT);
-  gMqtt.setBufferSize(1024);
-  gMqtt.setKeepAlive(MQTT_KEEPALIVE_S);
-  gMqtt.setCallback(mqttOnSync);
+  mqtt.setServer(HOST_MQTT, PORT_MQTT);
+  mqtt.setBufferSize(1024);
+  mqtt.setKeepAlive(KEEPALIVE_MQTT_DETIK);
+  mqtt.setCallback(saatPesanMasuk);
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(SSID_WIFI, PASSWORD_WIFI);
 }
 
-bool transportOnline() { return WiFi.status() == WL_CONNECTED; }
+bool jaringanNyala() { return WiFi.status() == WL_CONNECTED; }
 
-bool transportMqttConnected() { return gMqtt.connected(); }
+bool mqttNyala() { return mqtt.connected(); }
 
 // Reconnect Wi-Fi plus keepalive MQTT. Semua panggilan blocking ada di sini.
-void transportMaintain(uint32_t nowMs) {
-  static uint32_t lastReconnectMs = 0;
-  if (!transportOnline()) {
-    if (nowMs - lastReconnectMs > 2000) {
-      lastReconnectMs = nowMs;
+void rawatTransport(uint32_t ms) {
+  static uint32_t sambungLagiMs = 0;
+  if (!jaringanNyala()) {
+    if (ms - sambungLagiMs > 2000) {
+      sambungLagiMs = ms;
       WiFi.reconnect();
     }
     return;
   }
 
-  if (!gMqtt.connected()) {
-    // Last will membuat broker menandai device offline walau listrik putus, dan
-    // status retained membuat dashboard langsung membaca keadaan sebenarnya.
-    const bool ok = gMqtt.connect(DEVICE_CODE, MQTT_USERNAME, MQTT_PASSWORD, gTopicStatus, 1, true,
-                                  protocolStatusBody(false).c_str());
-    if (ok) {
-      gMqtt.subscribe(gTopicSync, 1);
+  if (!mqtt.connected()) {
+    // Last will membuat broker menandai perangkat offline walau listrik putus,
+    // dan status retained membuat dashboard langsung membaca keadaan sebenarnya.
+    char status[64];
+    bodyStatus(false, status, sizeof(status));
+    if (mqtt.connect(KODE_PERANGKAT, USER_MQTT, PASSWORD_MQTT, topikStatus, 1, true, status)) {
+      mqtt.subscribe(topikSinkron, 1);
     }
     return;
   }
-  gMqtt.loop();
+  mqtt.loop();
 }
 
-void transportPublishTelemetry(const Reading &reading) {
-  gMqtt.publish(gTopicTelemetry, protocolTelemetryBody(reading).c_str(), false);
+void kirimTelemetri(const Pembacaan &p) {
+  char body[384];
+  bodyTelemetri(p, body, sizeof(body));
+  mqtt.publish(topikTelemetri, body, false);
 }
 
-void transportPublishEvent(const char *kind, const char *priority) {
-  if (!gMqtt.connected()) {
+void kirimKejadianMqtt(const char *jenis, const char *prioritas) {
+  if (!mqtt.connected()) {
     return;
   }
   char body[192];
   snprintf(body, sizeof(body),
            "{\"event_type\":\"%s\",\"priority\":\"%s\",\"message\":\"%s\","
            "\"payload\":{\"device_code\":\"%s\",\"firmware\":\"%s\"}}",
-           kind, priority, kind, DEVICE_CODE, FW_VERSION);
-  gMqtt.publish(gTopicEvents, body, false);
+           jenis, prioritas, jenis, KODE_PERANGKAT, VERSI_FW);
+  mqtt.publish(topikKejadian, body, false);
 }
 
 // POST reading lalu menerapkan payload sync yang menumpang di respons.
 // Return false bila tidak ada yang diterapkan; command terakhir tetap berlaku.
-bool transportPostTelemetry(uint32_t nowMs, const Reading &reading) {
-  if (nowMs < gBackoffUntilMs) {
+bool postTelemetri(uint32_t ms, const Pembacaan &p) {
+  if (ms < mundurSampaiMs) {
     return false;
   }
-  if (!gHttp.begin(gTls, gHttpHost, gHttpPort, "/api/devices/telemetry", gHttpPort == 443)) {
-    transportBackoff(nowMs);
+  if (!http.begin(tls, hostHttp, portHttp, "/api/devices/telemetry", portHttp == 443)) {
+    jadwalkanMundur(ms);
     return false;
   }
-  gHttp.addHeader("Content-Type", "application/json");
-  gHttp.addHeader("X-Device-Token", DEVICE_TOKEN);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Token", TOKEN_PERANGKAT);
 
-  const int status = gHttp.POST(protocolTelemetryBody(reading));
+  char body[384];
+  const size_t panjang = bodyTelemetri(p, body, sizeof(body));
+  const int status = http.POST(reinterpret_cast<uint8_t *>(body), panjang);
   // Body harus dibaca sebelum end(): socket keep-alive dipakai ulang, body yang
   // belum dibaca ikut terbuang bersama koneksi.
-  const String payload = gHttp.getString();
-  gHttp.end();
+  const String balasan = http.getString();
+  http.end();
 
   if (status != HTTP_CODE_OK) {
-    transportBackoff(nowMs);
+    jadwalkanMundur(ms);
     return false;
   }
 
-  transportAccept(payload.c_str());
-  gBackoffMs = 0;
+  terimaSinkron(balasan.c_str());
+  mundurMs = 0;
   return true;
 }
 
 // ================================= APLIKASI =================================
 
-// Milik core kontrol. Core 0 tidak menyentuhnya langsung: command baru
-// menyeberang lewat queue, jadi tidak ada tulisan bersamaan ke struct ini.
-static Command gCommand{};
+// Milik core kontrol. Core 0 tidak menyentuhnya langsung: perintah baru
+// menyeberang lewat queue, jadi tidak ada tulisan bersamaan.
+static Perintah perintah{};
 
 // Sticky sampai operator re-arm: blip sensor sesaat tidak boleh menyalakan
-// heater lagi dengan sendirinya.
-static bool gTripped = false;
+// pemanas lagi dengan sendirinya.
+static bool trip = false;
 
-// Override relay kedaluwarsa OVERRIDE_TTL_MS setelah sync sukses terakhir,
+// Override relay kedaluwarsa TTL_OVERRIDE_MS setelah sync sukses terakhir,
 // sehingga jaringan yang hilang mengembalikan inkubator ke kontrol otomatis.
-void expireOverrides(uint32_t nowMs) {
-  if (gCommand.expiresAtMs == 0 || nowMs <= gCommand.expiresAtMs) {
+void kedaluwarsaOverride(uint32_t ms) {
+  if (perintah.kedaluwarsaMs == 0 || ms <= perintah.kedaluwarsaMs) {
     return;
   }
-  gCommand.overrideFan = -1;
-  gCommand.overrideHeater1 = -1;
-  gCommand.overrideHeater2 = -1;
-  gCommand.overrideBlueLight = -1;
-  gCommand.expiresAtMs = 0;
+  perintah.overrideKipas = -1;
+  perintah.overridePemanas1 = -1;
+  perintah.overridePemanas2 = -1;
+  perintah.overrideLampu = -1;
+  perintah.kedaluwarsaMs = 0;
 }
 
-void enterTrip(EventKind kind) {
-  if (gTripped) {
+void masukTrip(Kejadian jenis) {
+  if (trip) {
     return;
   }
-  gTripped = true;
-  bridgePublishEvent(kind);
-  relaysForceSafe();
+  trip = true;
+  kirimKejadian(jenis);
+  relayAman();
 }
 
 // Buffer tetap, bukan String: format LCD berjalan tiap 100 ms dan alokasi heap
 // per frame memecah memori perlahan.
-void formatLine1(char *out, size_t size, const Reading &r) {
-  if (!r.dsOk) {
-    snprintf(out, size, "SENSOR ERROR");
-  } else if (r.tripped) {
-    snprintf(out, size, "TRIP %5.1fC", r.objectC);
+void formatBaris1(char *keluaran, size_t ukuran, const Pembacaan &p) {
+  if (!p.objekValid) {
+    snprintf(keluaran, ukuran, "SENSOR ERROR");
+  } else if (p.trip) {
+    snprintf(keluaran, ukuran, "TRIP %5.1fC", p.suhuObjek);
   } else {
-    snprintf(out, size, "OBJ%5.1fC RH%4.1f", r.objectC, r.humidity);
+    snprintf(keluaran, ukuran, "OBJ%5.1fC RH%4.1f", p.suhuObjek, p.kelembapan);
   }
 }
 
-void formatLine2(char *out, size_t size, const Reading &r) {
-  if (r.tripped) {
-    snprintf(out, size, "FAIL-SAFE ON");
-  } else if (r.wifiDown) {
-    snprintf(out, size, "NO NET PID OK");
-  } else if (gCommand.isPaired) {
-    snprintf(out, size, "%-16.16s", gCommand.babyCode);
+void formatBaris2(char *keluaran, size_t ukuran, const Pembacaan &p) {
+  if (p.trip) {
+    snprintf(keluaran, ukuran, "FAIL-SAFE ON");
+  } else if (p.wifiMati) {
+    snprintf(keluaran, ukuran, "NO NET PID OK");
+  } else if (perintah.terpasang) {
+    snprintf(keluaran, ukuran, "%-16.16s", perintah.kodeBayi);
   } else {
-    snprintf(out, size, "%s STANDBY", DEVICE_CODE);
+    snprintf(keluaran, ukuran, "%s STANDBY", KODE_PERANGKAT);
   }
 }
 
-void applyActuators(Reading &reading, const ControlState &pid) {
-  if (gTripped) {
-    // Output fail-safe: sirkulasi nyala, tanpa panas.
-    reading.fan = true;
-    reading.heater1 = false;
-    reading.heater2 = false;
-  } else {
-    reading.fan = gCommand.overrideFan >= 0 ? gCommand.overrideFan > 0 : true;
-    reading.heater1 = gCommand.overrideHeater1 >= 0 ? gCommand.overrideHeater1 > 0 : pid.heater1;
-    reading.heater2 = gCommand.overrideHeater2 >= 0 ? gCommand.overrideHeater2 > 0 : pid.heater2;
-  }
-  reading.blueLight =
-      gCommand.overrideBlueLight >= 0 ? gCommand.overrideBlueLight > 0 : gCommand.blueLightEnabled;
+// Urutan prioritas: fail-safe > override > PID > idle.
+bool pilihAktuator(int8_t override, bool otomatis) {
+  return override >= 0 ? override > 0 : otomatis;
 }
 
-void drainEvents() {
-  EventKind kind;
-  while (bridgeTakeEvent(kind)) {
-    switch (kind) {
-      case EventKind::SensorFault:
-        transportPublishEvent("sensor_fault", "danger");
+void terapkanAktuator(Pembacaan &p, const Pid &pid) {
+  p.kipas = trip ? true : pilihAktuator(perintah.overrideKipas, true);
+  p.pemanas1 = trip ? false : pilihAktuator(perintah.overridePemanas1, pid.pemanas1);
+  p.pemanas2 = trip ? false : pilihAktuator(perintah.overridePemanas2, pid.pemanas2);
+  p.lampu = pilihAktuator(perintah.overrideLampu, perintah.lampuAktif);
+}
+
+void kurasKejadian() {
+  Kejadian jenis;
+  while (ambilKejadian(jenis)) {
+    switch (jenis) {
+      case Kejadian::SensorRusak:
+        kirimKejadianMqtt("sensor_fault", "danger");
         break;
-      case EventKind::Overheat:
-        transportPublishEvent("overheat", "danger");
+      case Kejadian::TerlaluPanas:
+        kirimKejadianMqtt("overheat", "danger");
         break;
-      case EventKind::NetworkLost:
-        transportPublishEvent("network_lost", "warning");
+      case Kejadian::JaringanHilang:
+        kirimKejadianMqtt("network_lost", "warning");
         break;
       default:
-        transportPublishEvent("device_boot", "info");
+        kirimKejadianMqtt("device_boot", "info");
         break;
     }
   }
@@ -933,148 +859,145 @@ void drainEvents() {
 
 // Core 1: sensor, PID, fail-safe, relay, LCD, publish ke queue. Tidak pernah
 // memblokir.
-void controlLoop() {
-  static ControlState pid;
-  static uint32_t lastStepMs = 0;
-  static bool hadWifi = false;
+void loopKontrol() {
+  static Pid pid;
+  static uint32_t langkahLaluMs = 0;
+  static bool wifiSebelumnya = false;
 
-  const uint32_t nowMs = millis();
+  const uint32_t ms = millis();
 
-  // Command dari transport mana pun diterapkan sebelum sampel ini, jadi
+  // Perintah dari transport mana pun diterapkan sebelum sampel ini, jadi
   // perubahan setpoint berlaku pada langkah kontrol berikutnya.
-  Command incoming{};
-  if (bridgeTakeCommand(incoming)) {
-    gCommand = incoming;
+  Perintah masuk{};
+  if (ambilPerintah(masuk)) {
+    perintah = masuk;
   }
 
-  sensorsPoll(nowMs);
+  pollSensor(ms);
 
-  const uint32_t intervalMs = nowMs - lastStepMs;
-  if (intervalMs < 100) {
+  const uint32_t jedaMs = ms - langkahLaluMs;
+  if (jedaMs < 100) {
     return;
   }
-  const float dtSeconds = intervalMs / 1000.0f;
-  lastStepMs = nowMs;
+  const float dt = jedaMs / 1000.0f;
+  langkahLaluMs = ms;
 
-  if (!sensorsWarm()) {
+  if (!sensorSiap()) {
     return;
   }
 
-  const float objectC = sensorsObjectC();
-  const bool objectValid = sensorsObjectOk();
+  const bool valid = objekValid;
 
   // Fail-safe paling dulu: menang atas PID dan atas semua override.
-  if (!objectValid) {
-    enterTrip(EventKind::SensorFault);
-  } else if (objectC > TRIP_HIGH_C || objectC < TRIP_LOW_C) {
-    enterTrip(EventKind::Overheat);
+  if (!valid) {
+    masukTrip(Kejadian::SensorRusak);
+  } else if (suhuObjekC > TRIP_ATAS_C || suhuObjekC < TRIP_BAWAH_C) {
+    masukTrip(Kejadian::TerlaluPanas);
   }
 
-  expireOverrides(nowMs);
+  kedaluwarsaOverride(ms);
 
-  if (!gTripped) {
-    controlStep(pid, objectC, objectValid, dtSeconds, gCommand);
+  if (!trip) {
+    langkahPid(pid, suhuObjekC, valid, dt, perintah);
   }
 
   // Satu pembacaan status Wi-Fi per langkah, bukan dua.
-  const bool wifiUp = transportOnline();
+  const bool wifiNyala = jaringanNyala();
 
-  Reading reading{};
-  reading.objectC = objectC;
-  reading.roomC = sensorsRoomC();
-  reading.humidity = sensorsHumidity();
-  reading.dsOk = objectValid;
-  reading.dhtOk = sensorsDhtReady();
-  reading.setpoint = gCommand.setpoint;
-  reading.pidOutput = pid.pidOutputPct;
-  reading.tripped = gTripped;
-  reading.wifiDown = !wifiUp;
-  reading.uptimeSeconds = nowMs / 1000;
-  applyActuators(reading, pid);
+  Pembacaan p{};
+  p.suhuObjek = suhuObjekC;
+  p.suhuRuang = suhuRuangC;
+  p.kelembapan = kelembapanPct;
+  p.objekValid = valid;
+  p.dhtValid = dhtValid;
+  p.trip = trip;
+  p.wifiMati = !wifiNyala;
+  p.uptimeDetik = ms / 1000;
+  terapkanAktuator(p, pid);
 
-  relaysApply(reading);
-  bridgePublishReading(reading);
+  terapkanRelay(p);
+  kirimBacaan(p);
 
-  char line1[17];
-  char line2[17];
-  formatLine1(line1, sizeof(line1), reading);
-  formatLine2(line2, sizeof(line2), reading);
-  lcdRender(line1, line2);
+  char baris1[17];
+  char baris2[17];
+  formatBaris1(baris1, sizeof(baris1), p);
+  formatBaris2(baris2, sizeof(baris2), p);
+  gambarLcd(baris1, baris2);
 
-  if (hadWifi && !wifiUp) {
-    bridgePublishEvent(EventKind::NetworkLost);
+  if (wifiSebelumnya && !wifiNyala) {
+    kirimKejadian(Kejadian::JaringanHilang);
   }
-  hadWifi = wifiUp;
+  wifiSebelumnya = wifiNyala;
 }
 
 // Core 0: pengawasan Wi-Fi, publish telemetry, drain event. Semua panggilan
 // blocking ada di sini.
-void networkLoop() {
-  const uint32_t nowMs = millis();
-  transportMaintain(nowMs);
-  drainEvents();
+void loopJaringan() {
+  const uint32_t ms = millis();
+  rawatTransport(ms);
+  kurasKejadian();
 
-  // Core kontrol publish tiap 100 ms; server cukup tiap TELEMETRY_INTERVAL_MS.
+  // Core kontrol publish tiap 100 ms; server cukup tiap INTERVAL_TELEMETRI_MS.
   // Ambil yang terbaru dan buang sisanya, jadi burst setelah stall tetap
   // mengirim satu sampel.
-  static uint32_t lastPublishMs = 0;
-  if (nowMs - lastPublishMs < TELEMETRY_INTERVAL_MS) {
+  static uint32_t kirimLaluMs = 0;
+  if (ms - kirimLaluMs < INTERVAL_TELEMETRI_MS) {
     return;
   }
-  lastPublishMs = nowMs;
+  kirimLaluMs = ms;
 
-  Reading reading{};
-  if (!bridgeTakeReading(reading, 0) || !transportOnline()) {
+  Pembacaan p{};
+  if (!ambilBacaan(p) || !jaringanNyala()) {
     return;
   }
 
   // MQTT lebih murah (satu socket, tanpa TLS handshake per request). HTTP tetap
   // cadangan supaya config dan pairing masih sampai saat broker mati.
-  if (transportMqttConnected()) {
-    transportPublishTelemetry(reading);
+  if (mqttNyala()) {
+    kirimTelemetri(p);
     return;
   }
 
-  transportPostTelemetry(nowMs, reading);
+  postTelemetri(ms, p);
 }
 
 // =================================== TASK ===================================
 
 // Dua task, dua core: handshake TLS di Core 0 tidak pernah menunda keputusan
-// heater di Core 1.
-void controlTask(void *parameter) {
-  (void)parameter;
+// pemanas di Core 1.
+void tugasKontrol(void *argumen) {
+  (void)argumen;
   for (;;) {
-    controlLoop();
+    loopKontrol();
     delay(1);
   }
 }
 
-void networkTask(void *parameter) {
-  (void)parameter;
+void tugasJaringan(void *argumen) {
+  (void)argumen;
   for (;;) {
-    networkLoop();
+    loopJaringan();
     delay(1);
   }
 }
 
 void setup() {
-  Serial.begin(SERIAL_BAUD);
+  Serial.begin(BAUD_SERIAL);
 
-  lcdBegin();
-  lcdSelfTest();
+  mulaiLcd();
+  ujiLcd();
 
-  sensorsBegin();
-  relaysBegin();
-  bridgeBegin();
+  mulaiSensor();
+  mulaiRelay();
+  mulaiJembatan();
 
-  gCommand = protocolDefaultCommand();
-  transportBegin();
+  perintah = perintahAwal();
+  mulaiTransport();
 
-  bridgePublishEvent(EventKind::DeviceBoot);
+  kirimKejadian(Kejadian::Boot);
 
-  xTaskCreatePinnedToCore(controlTask, "control", 4096, nullptr, 2, nullptr, 1);
-  xTaskCreatePinnedToCore(networkTask, "network", 8192, nullptr, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(tugasKontrol, "kontrol", 4096, nullptr, 2, nullptr, 1);
+  xTaskCreatePinnedToCore(tugasJaringan, "jaringan", 8192, nullptr, 1, nullptr, 0);
 }
 
 void loop() {

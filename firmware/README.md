@@ -26,7 +26,9 @@ Satu file: `Incubator/Incubator.ino`. Buka di Arduino IDE, pilih board
 | LCD SDA       | GPIO 21   | I2C, alamat 0x27               |
 | LCD SCL       | GPIO 22   |                                |
 
-Board relay yang active-high: `#define RELAY_ACTIVE_LOW 0` di `secrets.h`.
+Board relay unit ini **active-high** (pin HIGH = relay nyala), sudah diset
+`#define RELAY_ACTIVE_LOW 0` di `secrets.h`. Untuk board active-low, hapus baris
+itu atau set ke 1.
 
 ## Isi file
 
@@ -59,19 +61,39 @@ heater di Core 1.
 
 ## Library Arduino IDE
 
-Pasang lewat Library Manager, versi ini yang diuji:
+Tujuh library, versi ini yang diuji. Jangan pakai versi mayor yang lebih baru:
+ArduinoJson v7 menghapus `StaticJsonDocument`, DallasTemperature v4 mengubah API.
 
 | Library | Versi |
 | --- | --- |
-| ArduinoJson | 6.21.x (**v6**, bukan v7) |
+| ArduinoJson | 6.21.6 |
 | PubSubClient | 2.8 |
-| DallasTemperature | 3.11 |
+| DallasTemperature | 3.9.0 |
 | OneWire | 2.3.8 |
 | DHT sensor library | 1.4.6 |
 | Adafruit Unified Sensor | 1.1.14 |
-| LiquidCrystal I2C (Frank de Brabander) | 1.1.4 |
+| LiquidCrystal I2C (Frank de Brabander) | 1.1.2 |
 
-ArduinoJson v7 tidak kompatibel: kode memakai `StaticJsonDocument`.
+Dua cara memasang:
+
+**Library Manager.** Tools → Manage Libraries, cari nama di atas, pilih versi
+yang sama, Install. ArduinoJson harus v6; kalau IDE menawarkan v7, tolak.
+
+**arduino-cli.** Sekali jalan, tanpa UI:
+
+```bash
+arduino-cli lib install "ArduinoJson@6.21.6"
+arduino-cli lib install "PubSubClient@2.8.0"
+arduino-cli lib install "DallasTemperature@3.9.0"
+arduino-cli lib install "OneWire@2.3.8"
+arduino-cli lib install "DHT sensor library@1.4.6"
+arduino-cli lib install "Adafruit Unified Sensor@1.1.14"
+arduino-cli lib install "LiquidCrystal I2C@1.1.2"
+```
+
+Cek hasilnya: `arduino-cli lib list`. Library masuk ke `~/Arduino/libraries`,
+folder yang sama yang dibaca Arduino IDE.
+
 
 ## Config
 

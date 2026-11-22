@@ -5,20 +5,20 @@
 // kode. Nilai di sini menang atas default di dalam .ino.
 
 // Rahasia dari dashboard device.
-#define MQTT_PASSWORD "isi-password-broker"
-#define DEVICE_TOKEN "isi-device-token"
+#define PASSWORD_MQTT "isi-password-broker"
+#define TOKEN_PERANGKAT "isi-device-token"
 
 // Identitas per device, kalau berbeda dari default.
-// #define DEVICE_CODE "INC-002"
-// #define WIFI_SSID "lab-2.4g"
-// #define WIFI_PASSWORD "rahasia-wifi"
+// #define KODE_PERANGKAT "INC-002"
+// #define SSID_WIFI "lab-2.4g"
+// #define PASSWORD_WIFI "rahasia-wifi"
 
 // Alamat broker / server, kalau bukan default.
-// #define MQTT_HOST "41.216.180.77"
-// #define HTTP_BASE_URL "https://iot-komdis-2.test"
+// #define HOST_MQTT "41.216.180.77"
+// #define URL_HTTP "https://iot-komdis-2.test"
 
-// Board relay active-high: aktifkan ini.
-// #define RELAY_ACTIVE_LOW 0
+// Board relay active-low (pin LOW = relay nyala). Default .ino active-high.
+// #define RELAY_AKTIF_RENDAH 1
 
 // LCD dengan alamat I2C 0x3F.
-// #define LCD_I2C_ADDR 0x3F
+// #define ALAMAT_LCD 0x3F
