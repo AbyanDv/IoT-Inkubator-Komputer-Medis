@@ -242,4 +242,14 @@ class IncubatorDashboardTest extends TestCase
 
         $this->actingAs($user)->post('/incubators/'.$incubator->id.'/pair', ['baby_id' => $baby->id])->assertForbidden();
     }
+
+    public function test_config_page_shows_pid_defaults_button(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $incubator = Incubator::factory()->create();
+
+        $this->actingAs($admin)->get('/incubators/'.$incubator->id.'/config')->assertOk()
+            ->assertSee('data-pid-defaults', false)
+            ->assertSee('Reset PID defaults');
+    }
 }

@@ -169,13 +169,13 @@ void perbaruiLayarLcd() {
   }
 
   if (halamanPid) {
-    tampilkanBarisLcd(0, "KP" + String(kp, 1) + " KI" + String(ki, 1));
-    tampilkanBarisLcd(1, "KD" + String(kd, 1));
+    tampilkanBarisLcd(0, "KP:" + String(kp, 1) + " KI:" + String(ki, 1));
+    tampilkanBarisLcd(1, "KD:" + String(kd, 1) + " SP:" + String(suhuTarget, 1));
   } else {
     String sBayi  = sensorBayiNormal    ? String(suhuBayi, 1) + "C"    : "ERROR";
     String sRuang = sensorRuanganNormal ? String(suhuRuangan, 1) + "C" : "ERROR";
 
-    tampilkanBarisLcd(0, "SUHU BAYI:" + sBayi);
+    tampilkanBarisLcd(0, "SUHU BAYI :" + sBayi);
     tampilkanBarisLcd(1, "SUHU RUANG:" + sRuang);
   }
 }
@@ -284,10 +284,13 @@ void tugasJaringanCore0(void* parameter) {
 // --- 8. Setup & Loop Utama (Core 1) ---
 void setup() {
   Serial.begin(115200);
+  Serial.printf("Reset reason: %d\n", (int)esp_reset_reason());
 
+  // Set GPIO output level before pinMode so relays do not pulse on boot.
   for (int i = 0; i < JUMLAH_RELAY; i++) {
     ubahKondisiRelay(PIN_RELAY[i], false);
     pinMode(PIN_RELAY[i], OUTPUT);
+    ubahKondisiRelay(PIN_RELAY[i], false);
   }
 
   Wire.begin();
@@ -311,7 +314,7 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(SSID_WIFI, PASSWORD_WIFI);
-  xTaskCreatePinnedToCore(tugasJaringanCore0, "TugasJaringan", 12288, nullptr, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(tugasJaringanCore0, "TugasJaringan", 16384, nullptr, 1, nullptr, 0);
 }
 
 void loop() {

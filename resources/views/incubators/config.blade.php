@@ -71,14 +71,24 @@
                     </fieldset>
 
                     <fieldset class="section-divider">
-                        <legend class="text-base font-semibold">PID tuning</legend>
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <legend class="text-base font-semibold">PID tuning</legend>
+                            <button
+                                type="button"
+                                data-pid-defaults
+                                class="btn btn-secondary min-h-8 px-3 text-xs"
+                                onclick="const form = this.closest('form'); form.querySelector('[name=pid_kp]').value='25.0'; form.querySelector('[name=pid_ki]').value='0.8'; form.querySelector('[name=pid_kd]').value='10.0';"
+                            >
+                                Reset PID defaults
+                            </button>
+                        </div>
                         <p class="mt-1 text-sm leading-relaxed text-ink-soft">
                             Local control gains. Larger Kp reacts harder; Ki removes steady-state error; Kd damps overshoot.
                         </p>
                         <div class="mt-4 grid gap-4 sm:grid-cols-3">
-                            <x-field name="pid_kp" label="Kp" type="number" :value="$value('pid_kp', '2.000')" min="0" max="100" step="0.001" required inputmode="decimal" />
-                            <x-field name="pid_ki" label="Ki" type="number" :value="$value('pid_ki', '0.100')" min="0" max="100" step="0.001" required inputmode="decimal" />
-                            <x-field name="pid_kd" label="Kd" type="number" :value="$value('pid_kd', '0.500')" min="0" max="100" step="0.001" required inputmode="decimal" />
+                            <x-field name="pid_kp" label="Kp" type="number" :value="$value('pid_kp', '25.0')" min="0" max="100" step="0.001" required inputmode="decimal" />
+                            <x-field name="pid_ki" label="Ki" type="number" :value="$value('pid_ki', '0.8')" min="0" max="100" step="0.001" required inputmode="decimal" />
+                            <x-field name="pid_kd" label="Kd" type="number" :value="$value('pid_kd', '10.0')" min="0" max="100" step="0.001" required inputmode="decimal" />
                         </div>
                     </fieldset>
 
