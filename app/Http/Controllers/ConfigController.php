@@ -27,7 +27,7 @@ class ConfigController extends Controller
     public function update(Request $request, Incubator $incubator): RedirectResponse
     {
         $validated = $request->validate([
-            'temperature_setpoint' => ['required', 'numeric', 'between:20,40'],
+            'temperature_setpoint' => ['required', 'numeric', 'between:28,37'],
             'pid_kp' => ['required', 'numeric', 'between:0,100'],
             'pid_ki' => ['required', 'numeric', 'between:0,100'],
             'pid_kd' => ['required', 'numeric', 'between:0,100'],

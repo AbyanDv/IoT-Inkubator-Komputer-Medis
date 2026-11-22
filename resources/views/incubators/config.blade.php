@@ -60,11 +60,11 @@
                                 label="Setpoint (°C)"
                                 type="number"
                                 :value="$value('temperature_setpoint', 30)"
-                                min="20"
-                                max="40"
+                                min="28"
+                                max="37"
                                 step="0.1"
                                 required
-                                hint="Server range: 20–40 °C. Firmware safety clamps still apply."
+                                hint="Server range: 28–37 °C. Firmware safety clamps still apply."
                                 inputmode="decimal"
                             />
                         </div>
