@@ -83,7 +83,7 @@
                         <div class="rounded-xl border border-line bg-bone/60 p-4">
                             <p class="flex items-center gap-1.5 eyebrow">
                                 <x-icon name="thermometer" class="size-3.5" />
-                                Object temp.
+                                Baby temp.
                             </p>
                             <p class="mt-3 flex items-baseline gap-1">
                                 <span class="reading text-4xl font-semibold tracking-[-0.05em]" data-reading="temperature_object">{{ $telemetry ? number_format($telemetry['temperature_object'], 1) : '—' }}</span>
@@ -134,7 +134,7 @@
                     <div class="flex flex-wrap items-start justify-between gap-3">
                         <div>
                             <p class="eyebrow">Thermal trend</p>
-                            <h2 id="temperature-trend-heading" class="mt-1 text-lg font-semibold">Object temperature</h2>
+                            <h2 id="temperature-trend-heading" class="mt-1 text-lg font-semibold">Baby temperature</h2>
                         </div>
                         <p class="text-xs text-ink-soft">Last {{ $history->count() }} readings · °C</p>
                     </div>
@@ -145,7 +145,7 @@
                             viewBox="0 0 600 190"
                             class="h-52 w-full"
                             role="img"
-                            aria-label="Object temperature history for {{ $incubator->name }}"
+                            aria-label="Baby temperature history for {{ $incubator->name }}"
                         ></svg>
                         <noscript>
                             <p class="py-10 text-center text-sm text-ink-soft">Enable JavaScript to see the live trend. Recent values are listed below.</p>
@@ -160,7 +160,7 @@
                                 <thead>
                                     <tr>
                                         <th scope="col">Time</th>
-                                        <th scope="col">Object</th>
+                                        <th scope="col">Baby</th>
                                         <th scope="col">Room</th>
                                         <th scope="col">Humidity</th>
                                     </tr>
@@ -202,7 +202,6 @@
                                 'fan' => ['label' => 'Fan / circulation', 'hint' => 'Chamber air circulation'],
                                 'heater_1' => ['label' => 'Heater 1', 'hint' => 'Main heating lamp'],
                                 'heater_2' => ['label' => 'Heater 2', 'hint' => 'Secondary heating lamp'],
-                                'blue_light' => ['label' => 'Blue light', 'hint' => 'Phototherapy simulation'],
                             ] as $key => $relay)
                                 @php
                                     $on = (bool) ($telemetry['relays'][$key] ?? false);
@@ -246,7 +245,7 @@
                         <div class="mt-4 space-y-3 rounded-xl bg-warn-soft px-3 py-2.5">
                             <div class="flex flex-wrap items-center justify-between gap-3">
                                 <p id="relay-safety-note" class="max-w-sm text-xs leading-relaxed text-warn">
-                                    Test only. The device returns to automatic control after 60 seconds without a server response.
+                                    Return to auto in 10 seconds.
                                 </p>
                                 @if ($canManageActuators)
                                     <button type="button" data-relay-auto class="btn btn-secondary min-h-10 px-3 text-xs {{ empty($relayOverrides) ? 'hidden' : '' }}" @disabled(! $canManageActuators)>
@@ -266,7 +265,7 @@
                             <li class="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                                 <div>
                                     <p class="text-sm font-medium">DS18B20</p>
-                                    <p class="mt-0.5 text-xs text-ink-soft">Object contact probe</p>
+                                    <p class="mt-0.5 text-xs text-ink-soft">Baby contact probe</p>
                                 </div>
                                 <span data-sensor="ds18b20" class="badge {{ $sensorTone('ds18b20') }}">
                                     <span class="status-dot" aria-hidden="true"></span>
@@ -561,7 +560,7 @@
                     const relays = this.telemetry?.relays ?? null;
                     const overrides = this.relayOverrides ?? {};
 
-                    for (const key of ['fan', 'heater_1', 'heater_2', 'blue_light']) {
+                    for (const key of ['fan', 'heater_1', 'heater_2']) {
                         const on = Object.prototype.hasOwnProperty.call(this.relayPending, key)
                             ? this.relayPending[key]
                             : Object.prototype.hasOwnProperty.call(overrides, key)

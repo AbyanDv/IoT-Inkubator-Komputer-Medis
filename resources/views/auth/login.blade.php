@@ -31,7 +31,7 @@
                     The incubator,<br>in clear view.
                 </h1>
                 <p class="mt-5 max-w-sm text-[0.95rem] leading-relaxed text-white/60">
-                    Monitor object temperature, humidity, and actuator state from one quiet dashboard.
+                    Monitor baby temperature, humidity, and actuator state from one quiet dashboard.
                 </p>
 
                 <svg viewBox="0 0 400 120" class="mt-10 w-full max-w-sm text-white/25" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">

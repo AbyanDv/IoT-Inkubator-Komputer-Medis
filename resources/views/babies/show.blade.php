@@ -79,7 +79,7 @@
 
                     <div class="mt-4 grid grid-cols-3 gap-3">
                         <div class="rounded-xl border border-line p-3">
-                            <p class="eyebrow">Object</p>
+                            <p class="eyebrow">Baby</p>
                             <p class="mt-2 flex items-baseline gap-1">
                                 <span class="text-2xl font-semibold tabular-nums tracking-[-0.04em]">{{ $latest ? number_format((float) $latest->temperature_object, 1) : '—' }}</span>
                                 <span class="text-xs font-medium text-ink-soft">°C</span>
@@ -163,7 +163,7 @@
                                 <thead>
                                     <tr>
                                         <th scope="col">Recorded</th>
-                                        <th scope="col">Object</th>
+                                        <th scope="col">Baby</th>
                                         <th scope="col">Room</th>
                                         <th scope="col">Humidity</th>
                                         <th scope="col">Heater 1</th>

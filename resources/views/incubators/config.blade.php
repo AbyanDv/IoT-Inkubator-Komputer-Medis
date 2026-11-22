@@ -52,7 +52,7 @@
                     <fieldset>
                         <legend class="text-base font-semibold">Thermal target</legend>
                         <p class="mt-1 text-sm leading-relaxed text-ink-soft">
-                            The PID loop on the device drives the heater toward this object-temperature target.
+                            The PID loop on the device drives the heater toward this temperature target.
                         </p>
                         <div class="mt-4 grid gap-4 sm:grid-cols-2">
                             <x-field

@@ -33,7 +33,7 @@ class IncubatorDashboardTest extends TestCase
             ->assertSee('telemetryUnavailable ? \'Stale\'', false)
             ->assertSee('Relay test')
             ->assertSee('data-relay-toggle="heater_1"', false)
-            ->assertSee('data-relay-toggle="blue_light"', false)
+            ->assertDontSee('data-relay-toggle="blue_light"', false)
             ->assertSee('data-relay-toggle="fan"', false)
             ->assertSee('data-relay-toggle="heater_2"', false)
             ->assertSee('type="checkbox"', false)

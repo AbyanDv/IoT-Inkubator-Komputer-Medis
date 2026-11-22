@@ -18,18 +18,18 @@
 #define ALAMAT_LCD      0x27
 #define RELAY_NYALA_LOW true
 
-const int PIN_SENSOR_RUANGAN = 4;
-const int PIN_SENSOR_BAYI    = 5;
+const int PIN_SENSOR_RUANGAN = 5; // DHT22
+const int PIN_SENSOR_BAYI    = 4; // DS18B20
 
 enum IndeksRelay { KIPAS, PEMANAS_1, PEMANAS_2, LAMPU_BIRU, JUMLAH_RELAY };
-const int PIN_RELAY[JUMLAH_RELAY]           = {25, 26, 27, 14};
+const int PIN_RELAY[JUMLAH_RELAY]           = {14, 26, 27, 25}; // Fan and blue light pins swapped to match wiring
 const char* NAMA_RELAY_SERVER[JUMLAH_RELAY] = {"fan", "heater_1", "heater_2", "blue_light"};
 const unsigned long DURASI_KONTROL_MANUAL   = 10000;
 
 // --- 2. Objek & Variabel Global ---
-OneWire jalurOneWire(PIN_SENSOR_RUANGAN);
-DallasTemperature sensorRuangan(&jalurOneWire);
-DHT sensorBayi(PIN_SENSOR_BAYI, DHT22);
+OneWire jalurOneWire(PIN_SENSOR_BAYI);
+DallasTemperature sensorBayi(&jalurOneWire);
+DHT sensorRuangan(PIN_SENSOR_RUANGAN, DHT22);
 LiquidCrystal_I2C layarLcd(ALAMAT_LCD, 16, 2);
 
 WiFiClientSecure klienWifiAman;
@@ -74,26 +74,26 @@ void ubahKondisiRelay(int pin, bool nyala) {
 
 // --- 4. Pembacaan Sensor (Core 1) ---
 void bacaSemuaSensor(unsigned long waktuSekarang) {
-  static unsigned long waktuUkurRuangan = 0, waktuBacaDht = 0;
-  static bool sedangMengukurRuangan = false;
+  static unsigned long waktuUkurBayi = 0, waktuBacaDht = 0;
+  static bool sedangMengukurBayi = false;
 
-  if (!sedangMengukurRuangan) {
-    sensorRuangan.requestTemperatures();
-    waktuUkurRuangan = waktuSekarang;
-    sedangMengukurRuangan = true;
-  } else if (waktuSekarang - waktuUkurRuangan >= 500) {
-    sedangMengukurRuangan = false;
-    float hasil = sensorRuangan.getTempCByIndex(0);
-    sensorRuanganNormal = (hasil > -50.0 && hasil < 84.0);
-    if (sensorRuanganNormal) suhuRuangan = hasil;
+  if (!sedangMengukurBayi) {
+    sensorBayi.requestTemperatures();
+    waktuUkurBayi = waktuSekarang;
+    sedangMengukurBayi = true;
+  } else if (waktuSekarang - waktuUkurBayi >= 500) {
+    sedangMengukurBayi = false;
+    float hasil = sensorBayi.getTempCByIndex(0);
+    sensorBayiNormal = (hasil > -50.0 && hasil < 84.0);
+    if (sensorBayiNormal) suhuBayi = hasil;
   }
 
   if (apakahSudahWaktunya(waktuBacaDht, waktuSekarang, 2500)) {
-    float t = sensorBayi.readTemperature();
-    float h = sensorBayi.readHumidity();
-    sensorBayiNormal = (!isnan(t) && !isnan(h));
-    if (sensorBayiNormal) {
-      suhuBayi = t;
+    float t = sensorRuangan.readTemperature();
+    float h = sensorRuangan.readHumidity();
+    sensorRuanganNormal = (!isnan(t) && !isnan(h));
+    if (sensorRuanganNormal) {
+      suhuRuangan = t;
       kelembapan = h;
     }
   }
@@ -152,39 +152,39 @@ void aturRelay(unsigned long waktuSekarang) {
   }
 }
 
-// --- 6. Tampilan LCD Bergerak & Serial Monitor (Core 1) ---
-void tampilkanTeksBerjalan(int baris, const String &teks, int &posisi) {
-  String teksPenuh = "                " + teks + "                ";
-  if (posisi > (int)teksPenuh.length() - 16) posisi = 0;
-
+// --- 6. Tampilan LCD & Serial Monitor (Core 1) ---
+void tampilkanBarisLcd(int baris, const String &teks) {
   layarLcd.setCursor(0, baris);
-  layarLcd.print(teksPenuh.substring(posisi, posisi + 16));
-  posisi++;
+  layarLcd.print((teks + "                ").substring(0, 16));
 }
 
 void perbaruiLayarLcd() {
-  static int posAtas = 0, posBawah = 0;
+  static unsigned long waktuGanti = 0;
+  static bool halamanPid = false;
 
-  String sBayi   = sensorBayiNormal    ? String(suhuBayi, 1) + " C"    : "ERROR";
-  String sRuang  = sensorRuanganNormal ? String(suhuRuangan, 1) + " C" : "ERROR";
-  String sLembap = sensorBayiNormal    ? String(kelembapan, 1) + " %"  : "ERROR";
+  unsigned long sekarang = millis();
+  if (sekarang - waktuGanti >= 3000) {
+    waktuGanti = sekarang;
+    halamanPid = !halamanPid;
+  }
 
-  String barisAtas  = "SUHU BAYI: " + sBayi + " | SUHU RUANGAN: " + sRuang + " | KELEMBAPAN: " + sLembap;
-  String barisBawah = "TARGET: " + String(suhuTarget, 1) + " C | PID: " + String(outputPid, 0) +
-                      " | KIPAS: " + (statusRelay[KIPAS] ? "NYALA" : "MATI") +
-                      " | PEMANAS 1: " + (statusRelay[PEMANAS_1] ? "NYALA" : "MATI") +
-                      " | PEMANAS 2: " + (statusRelay[PEMANAS_2] ? "NYALA" : "MATI") +
-                      " | LAMPU: " + (statusRelay[LAMPU_BIRU] ? "NYALA" : "MATI");
+  if (halamanPid) {
+    tampilkanBarisLcd(0, "KP" + String(kp, 1) + " KI" + String(ki, 1));
+    tampilkanBarisLcd(1, "KD" + String(kd, 1));
+  } else {
+    String sBayi  = sensorBayiNormal    ? String(suhuBayi, 1) + "C"    : "ERROR";
+    String sRuang = sensorRuanganNormal ? String(suhuRuangan, 1) + "C" : "ERROR";
 
-  tampilkanTeksBerjalan(0, barisAtas, posAtas);
-  tampilkanTeksBerjalan(1, barisBawah, posBawah);
+    tampilkanBarisLcd(0, "SUHU BAYI:" + sBayi);
+    tampilkanBarisLcd(1, "SUHU RUANG:" + sRuang);
+  }
 }
 
 void tampilkanKeSerialMonitor() {
   Serial.println("========================================");
   Serial.printf("SUHU BAYI       : %s\n", sensorBayiNormal ? (String(suhuBayi, 1) + " C").c_str() : "TIDAK TERBACA");
   Serial.printf("SUHU RUANGAN    : %s\n", sensorRuanganNormal ? (String(suhuRuangan, 1) + " C").c_str() : "TIDAK TERBACA");
-  Serial.printf("KELEMBAPAN      : %s\n", sensorBayiNormal ? (String(kelembapan, 1) + " %").c_str() : "TIDAK TERBACA");
+  Serial.printf("KELEMBAPAN      : %s\n", sensorRuanganNormal ? (String(kelembapan, 1) + " %").c_str() : "TIDAK TERBACA");
   Serial.printf("TARGET & PID    : %.1f C | Output PID: %.1f (Kp:%.1f Ki:%.1f Kd:%.1f)\n", suhuTarget, outputPid, kp, ki, kd);
   Serial.printf("MODE KONTROL    : %s\n", modeManualAktif ? "MANUAL (10 Detik)" : "OTOMATIS (PID)");
   Serial.printf("STATUS RELAY    : Kipas=%s | Pemanas1=%s | Pemanas2=%s | Lampu=%s\n",
@@ -240,8 +240,8 @@ void kirimDataKeServer() {
     doc["relays"][NAMA_RELAY_SERVER[i]] = statusRelay[i];
   }
 
-  doc["sensor_status"]["ds18b20"] = sensorRuanganNormal;
-  doc["sensor_status"]["dht22"]   = sensorBayiNormal;
+  doc["sensor_status"]["ds18b20"] = sensorBayiNormal;
+  doc["sensor_status"]["dht22"]   = sensorRuanganNormal;
   doc["uptime_s"]                 = millis() / 1000;
 
   char payload[512];
@@ -294,10 +294,10 @@ void setup() {
   layarLcd.init();
   layarLcd.backlight();
 
-  sensorRuangan.setWaitForConversion(false);
-  sensorRuangan.begin();
-  sensorRuangan.setResolution(11);
+  sensorBayi.setWaitForConversion(false);
   sensorBayi.begin();
+  sensorBayi.setResolution(11);
+  sensorRuangan.begin();
 
   String prefix     = String("incubator/") + KODE_PERANGKAT + "/";
   topikPerintah     = prefix + "sync";

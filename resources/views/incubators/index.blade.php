@@ -87,7 +87,7 @@
 
                             <dl class="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-bone/70 p-3">
                                 <div>
-                                    <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Object</dt>
+                                    <dt class="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-ink-soft">Baby</dt>
                                     <dd class="mt-1 text-lg font-semibold tabular-nums">
                                         {{ $telemetry ? number_format((float) $telemetry->temperature_object, 1) : '—' }}
                                         <span class="text-xs font-medium text-ink-soft">°C</span>
@@ -132,7 +132,7 @@
                             <tr>
                                 <th scope="col">Device</th>
                                 <th scope="col">Status</th>
-                                <th scope="col">Object temp.</th>
+                                <th scope="col">Baby temp.</th>
                                 <th scope="col">Humidity</th>
                                 <th scope="col">Baby</th>
                                 <th scope="col">Last heartbeat</th>
