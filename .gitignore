@@ -26,6 +26,7 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 .pio/
+firmware/Incubator/secrets.h
 firmware/tests/test_firmware_logic
 
 /simulator/.venv

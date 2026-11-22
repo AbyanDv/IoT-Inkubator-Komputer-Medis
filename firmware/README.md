@@ -1,146 +1,128 @@
 # Firmware ESP32 — Smart Infant Incubator
 
-Firmware for the ESP32 DevKit V1 that runs the incubator's real-time control
-loop. **Every calculation runs on the ESP32**: the VPS only stores telemetry and
-pushes config. If the network dies, the PID loop, staging, and fail-safe keep
-working untouched.
+Firmware ESP32 DevKit V1 untuk loop kontrol real-time inkubator. **Semua
+perhitungan berjalan di ESP32**: VPS hanya menyimpan telemetry dan mengirim
+config. Kalau jaringan mati, loop PID, staging, dan fail-safe tetap jalan.
 
-- Platform: PlatformIO, Arduino framework, ESP32 dual-core.
-- Sensors: DS18B20 (object, non-blocking), DHT22 (room + humidity).
-- Actuators: 4 relays (fan, heater 1, heater 2, blue light), LCD I2C 16x2.
-- Transports: MQTT over TLS (primary) + HTTPS piggyback (fallback), same JSON
-  contract as `app/Services/DeviceIngestionService.php`.
+Satu file: `Incubator/Incubator.ino`. Buka di Arduino IDE, pilih board
+**ESP32 Dev Module**, upload.
+
+- Board: ESP32 DevKit V1 / ESP32 Dev Module (WROOM-32, 4 MB flash, tanpa PSRAM).
+- Sensor: DS18B20 (suhu objek, non-blocking), DHT22 (ruang + kelembapan).
+- Aktuator: 4 relay (fan, heater 1, heater 2, lampu biru), LCD I2C 16x2.
+- Transport: MQTT over TLS (utama) + HTTPS (cadangan), kontrak JSON sama
+  dengan `app/Services/DeviceIngestionService.php`.
 
 ## Wiring
 
-| Signal        | ESP32 pin | Notes                          |
+| Signal        | ESP32 pin | Catatan                        |
 | ------------- | --------- | ------------------------------ |
-| DS18B20 data  | GPIO 4    | 4.7 kΩ pull-up to 3.3 V        |
-| DHT22 data    | GPIO 5    | 4.7 kΩ pull-up to 3.3 V        |
-| Relay fan     | GPIO 25   | Opto-isolated board, active low |
+| DS18B20 data  | GPIO 4    | pull-up 4.7 kΩ ke 3.3 V        |
+| DHT22 data    | GPIO 5    | pull-up 4.7 kΩ ke 3.3 V        |
+| Relay fan     | GPIO 25   | board opto, active low         |
 | Relay heater 1| GPIO 26   |                                |
 | Relay heater 2| GPIO 27   |                                |
 | Relay blue    | GPIO 14   |                                |
-| LCD SDA       | GPIO 21   | I2C, addr 0x27                 |
+| LCD SDA       | GPIO 21   | I2C, alamat 0x27               |
 | LCD SCL       | GPIO 22   |                                |
 
-Relay boards that are active-high: set `RELAY_ACTIVE_LOW=0` in
-`platformio.ini`.
+Board relay yang active-high: `#define RELAY_ACTIVE_LOW 0` di `secrets.h`.
 
-## Architecture
+## Isi file
+
+`Incubator.ino` disusun berurutan, tanpa file lain:
+
+1. **IDENTITAS / TIMING / KONTROL / SENSOR / AKTUATOR / DEBUG** — semua knob,
+   dibungkus `#ifndef`, jadi bisa ditimpa dari `secrets.h`.
+2. **MODEL DATA** — struct POD untuk queue antar core.
+3. **CA** — sertifikat broker ditanam sebagai string.
+4. **KONTROL** — PID + staging + histeresis, tanpa panggilan Arduino.
+5. **SENSOR** — DS18B20 non-blocking + DHT22 dengan backoff.
+6. **RELAY**, **LCD**, **BRIDGE**, **PROTOKOL**, **TLS**, **TRANSPORT**.
+7. **APLIKASI** — `controlLoop()` (Core 1) dan `networkLoop()` (Core 0).
+8. **TASK** — dua task FreeRTOS, `setup()`, `loop()`.
+
+Arsitektur core:
 
 ```
-                 ESP32 (dual core, no shared mutable state)
- +--------------------------- Core 1 (PRO_CPU) ------------------+
- | controlLoop() every 100 ms:                                   |
- |   sensors::poll()  ── DS18B20 conversion runs off-core        |
- |   fail-safe check  ── trip is sticky, wins over everything    |
- |   control::step()  ── PID + relay staging (pure math)         |
- |   relays::apply()  ── overrides > PID, trip > overrides       |
- |   display::render() + bridge::publishReading()                |
- +---------------------------┬-----------------------------------+
- |                    FreeRTOS queue (1 slot, overwrite)          |
- +---------------------------┴-----------------------------------+
- |                 Core 0 (APP_CPU) — all blocking I/O           |
- | networkLoop():                                                |
- |   transport::maintain()  Wi-Fi reconnect + MQTT keepalive     |
- |   drainEvents()          fault events → MQTT + HTTP           |
- |   every TELEMETRY_INTERVAL_MS:                                |
- |     MQTT  publish incubator/INC-001/telemetry   (primary)     |
- |     HTTP  POST /api/devices/telemetry           (fallback)    |
- |        └─ response carries config + pairing + overrides       |
- |            → protocol::apply() → bridge::publishCommand()     |
- +---------------------------------------------------------------+
+Core 1 (PRO_CPU) controlLoop() tiap 100 ms:
+  sensorsPoll -> fail-safe -> controlStep -> relaysApply
+  -> lcdRender -> bridgePublishReading
+
+Core 0 (APP_CPU) networkLoop():
+  transportMaintain -> drainEvents
+  tiap TELEMETRY_INTERVAL_MS: MQTT publish, atau HTTP POST sebagai fallback
 ```
 
-Why this split: a TLS handshake or Wi-Fi reconnect on Core 1 would delay a
-heater decision by up to seconds. Core 1 never calls a blocking API.
+Handshake TLS atau reconnect Wi-Fi di Core 0 tidak pernah menunda keputusan
+heater di Core 1.
+
+## Library Arduino IDE
+
+Pasang lewat Library Manager, versi ini yang diuji:
+
+| Library | Versi |
+| --- | --- |
+| ArduinoJson | 6.21.x (**v6**, bukan v7) |
+| PubSubClient | 2.8 |
+| DallasTemperature | 3.11 |
+| OneWire | 2.3.8 |
+| DHT sensor library | 1.4.6 |
+| Adafruit Unified Sensor | 1.1.14 |
+| LiquidCrystal I2C (Frank de Brabander) | 1.1.4 |
+
+ArduinoJson v7 tidak kompatibel: kode memakai `StaticJsonDocument`.
 
 ## Config
 
-One file, two layers:
+Dua lapis:
 
-- `include/config.h` — every knob, wrapped in `#ifndef`. Defaults live here;
-  nothing else in the tree hardcodes a pin, threshold, or gain.
-- `platformio.ini` `build_flags` — the only place per-device values go.
+- Blok `#ifndef` di bagian atas `Incubator.ino` — default semua knob.
+- `Incubator/secrets.h` — nilai per device dan rahasia. Disertakan otomatis
+  bila ada, dan nilainya menang atas default.
 
-```ini
--DDEVICE_CODE="\"INC-002\""
--DWIFI_SSID="\"lab-2.4g\""
--DMQTT_PASSWORD=\\"${sysenv.MQTT_PASSWORD}\\"
--DTLS_VERIFY=1
-```
+Rahasia (`MQTT_PASSWORD`, `DEVICE_TOKEN`) tidak pernah masuk repo.
 
-Secrets (`MQTT_PASSWORD`, `DEVICE_TOKEN`) come from the shell, never from the
-repo. CA certificate lives in `data/ca.crt` (LittleFS, uploaded once with
-`pio run -t uploadfs`), so changing brokers costs an upload, not a recompile.
+Konstanta kontrol, disetel untuk inkubator 28–37 °C:
 
-Control constants, tuned for a 28–37 °C incubator:
-
-| Key                | Default | Meaning                                  |
+| Key                | Default | Arti                                     |
 | ------------------ | ------- | ---------------------------------------- |
-| `DEFAULT_SETPOINT` | 33.5 °C | Local fallback before first sync         |
-| `SETPOINT_MIN/MAX` | 28/37 °C| Clamp applied to any network setpoint    |
-| `TRIP_HIGH_C`      | 38.5 °C | Overheat trip: heaters off, fan on       |
-| `TRIP_LOW_C`       | 15.0 °C | Below this the probe is lying, not cold  |
-| `HEATER_1_ON_PCT`  | 5 %     | Staging threshold, heater 1              |
-| `HEATER_2_ON_PCT`  | 50 %    | Staging threshold, heater 2              |
-| `HEATER_HYST_PCT`  | 3 %     | Release band, stops relay chatter        |
-| `PID_FULL_SCALE_C` | 5.0 K   | Error that maps to 100 % output          |
-| `PID_I_MIN/MAX_C`  | ±1.0 K  | Integral clamp (anti-windup)             |
-| `OVERRIDE_TTL_MS`  | 60000   | Relay test override lifetime, no server  |
+| `DEFAULT_SETPOINT` | 33.5 °C | fallback lokal sebelum sync pertama      |
+| `SETPOINT_MIN/MAX` | 28/37 °C| clamp untuk setpoint dari jaringan       |
+| `TRIP_HIGH_C`      | 38.5 °C | overheat: heater mati, fan nyala         |
+| `TRIP_LOW_C`       | 15.0 °C | di bawah ini probe dianggap rusak        |
+| `HEATER_1_ON_PCT`  | 5 %     | ambang stage heater 1                    |
+| `HEATER_2_ON_PCT`  | 50 %    | ambang stage heater 2                    |
+| `HEATER_HYST_PCT`  | 3 %     | pita lepas, mencegah relay berkedip      |
+| `PID_FULL_SCALE_C` | 5.0 K   | error yang memetakan ke output 100 %     |
+| `PID_I_MIN/MAX_C`  | ±1.0 K  | clamp integral (anti-windup)             |
+| `OVERRIDE_TTL_MS`  | 60000   | umur override relay tanpa server         |
 
-The server's `pid_kp/ki/kd` keep their K-per-K meaning: output % =
+Gain server (`pid_kp/ki/kd`) tetap bermakna K-per-K: output % =
 `(kp·e + ∫ki·e + kd·de/dt) · 100 / PID_FULL_SCALE_C`.
 
-## Fail-safe rules (firmware only)
+## Aturan fail-safe (hanya firmware)
 
-1. Sensor fault (`ds18b20: false`), overheat, or implausible low reading →
-   heater 1 + heater 2 OFF, fan ON, LCD shows `FAIL-SAFE ON`.
-2. Trip is sticky: heaters stay off until the device reboots. A blip must never
-   re-arm heat on its own.
-3. Relay test overrides from the dashboard expire `OVERRIDE_TTL_MS` after the
-   last successful sync (PRD: 60 s dead-man).
-4. Fail-safe wins over override; override wins over PID; PID wins over idle.
+1. Fault sensor (`ds18b20: false`), overheat, atau bacaan rendah tidak masuk
+   akal: heater 1 + 2 OFF, fan ON, LCD `FAIL-SAFE ON`.
+2. Trip sticky: heater tetap mati sampai device reboot. Blip sesaat tidak boleh
+   menyalakan panas sendiri.
+3. Override relay dari dashboard kedaluwarsa `OVERRIDE_TTL_MS` setelah sync
+   sukses terakhir (dead-man 60 s sesuai PRD).
+4. Urutan prioritas: fail-safe > override > PID > idle.
 
-## Build & flash
+## Kontrak dengan Laravel
 
-```bash
-cd firmware
-pio run                  # compile + host tests are separate
-pio run -t upload        # flash
-pio run -t uploadfs      # upload data/ca.crt once
-pio monitor              # 115200
-```
-
-Provision a device: register it in the dashboard, copy the issued
-`device_token` into `-DDEVICE_TOKEN=...`, rebuild, flash.
-
-## Host tests
-
-`lib/control/control.cpp` has zero Arduino dependencies, so the PID, staging,
-hysteresis, anti-windup, and trip logic run on the host compiler:
-
-```bash
-./host_test/run.sh    # plain g++, no ESP32, no PlatformIO
-```
-
-Golden vectors cover: both stages on a large error, sensor-fault and overheat
-clearance, the 5 %/3 % hysteresis band, setpoint clamp, integral wind-up stop,
-and derivative damping. CI runs this file before any board is flashed.
-
-## Contract with Laravel
-
-- Telemetry body = `StoreTelemetryRequest::payloadRules()` exactly.
-- Sync body = `DeviceIngestionService::syncPayload()` exactly:
+- Body telemetry = `StoreTelemetryRequest::payloadRules()`.
+- Body sync = `DeviceIngestionService::syncPayload()`:
   `config`, `is_paired`, `baby.code`, `relay_overrides`.
-- Absent keys keep the last-known value; a partial response can never reset the
-  controller. `relay_overrides: {}` means "back to auto", which is why the
-  parser treats an empty object as a deliberate clear, not a missing field.
-- `timestamp` is not sent: Laravel stamps `recorded_at` itself.
+- Key yang tidak ada mempertahankan nilai terakhir; payload parsial tidak bisa
+  mereset controller. `relay_overrides: {}` berarti "kembali ke auto", jadi
+  parser memperlakukan objek kosong sebagai perintah hapus, bukan field hilang.
+- `timestamp` tidak dikirim: Laravel yang menstempel `recorded_at`.
 
-## Safety boundary
+## Batas keamanan
 
-Prototype firmware for research and teaching. Not a medical device. Not for
-use on humans. Thermal trip thresholds are local and cannot be lowered from the
-network.
+Firmware prototipe untuk riset dan pengajaran. Bukan alat medis. Jangan dipakai
+pada manusia. Ambang trip termal bersifat lokal dan tidak bisa diturunkan dari
+jaringan.
