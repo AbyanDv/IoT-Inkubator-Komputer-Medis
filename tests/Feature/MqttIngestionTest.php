@@ -80,7 +80,7 @@ class MqttIngestionTest extends TestCase
         $this->assertSame('success', $published['status']);
         $this->assertFalse($published['is_paired']);
         $this->assertNull($published['config']);
-        $this->assertSame([], (array) $published['relay_overrides']);
+        $this->assertNull($published['relay_overrides']);
     }
 
     public function test_telemetry_sync_includes_relay_overrides(): void
@@ -126,6 +126,9 @@ class MqttIngestionTest extends TestCase
         $this->handle('telemetry', $this->telemetry());
 
         $this->assertSame(36.5, $published['config']['temperature_setpoint']);
+        $this->assertSame((float) $published['config']['kp'], (float) $this->incubator->activeConfig->pid_kp);
+        $this->assertSame((float) $published['config']['ki'], (float) $this->incubator->activeConfig->pid_ki);
+        $this->assertSame((float) $published['config']['kd'], (float) $this->incubator->activeConfig->pid_kd);
     }
 
     public function test_telemetry_with_mismatched_device_code_is_ignored(): void

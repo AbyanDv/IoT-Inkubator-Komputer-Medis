@@ -77,6 +77,8 @@ class DeviceIngestionService
             'name' => $incubator->currentBaby->name,
         ] : null;
 
+        $overrides = $this->relays->overrides($incubator);
+
         return [
             'status' => 'success',
             'is_paired' => $baby !== null,
@@ -84,7 +86,7 @@ class DeviceIngestionService
             'config' => $incubator->activeConfig
                 ? $this->configPayload($incubator->activeConfig)
                 : null,
-            'relay_overrides' => (object) $this->relays->overrides($incubator),
+            'relay_overrides' => $overrides === [] ? null : (object) $overrides,
         ];
     }
 
@@ -95,9 +97,9 @@ class DeviceIngestionService
     {
         return [
             'temperature_setpoint' => (float) $config->temperature_setpoint,
-            'pid_kp' => (float) $config->pid_kp,
-            'pid_ki' => (float) $config->pid_ki,
-            'pid_kd' => (float) $config->pid_kd,
+            'kp' => (float) $config->pid_kp,
+            'ki' => (float) $config->pid_ki,
+            'kd' => (float) $config->pid_kd,
             'blue_led_enabled' => $config->blue_led_enabled,
         ];
     }

@@ -1,13 +1,7 @@
-// Smart Infant Incubator - ESP32 (versi ringkas)
-// Core 1 loop(): sensor -> kontrol on/off (pakai suhu ruang DS18B20) -> relay -> LCD
-// Core 0 taskJaringan(): WiFi/MQTT, kirim telemetri, terima sync
-// DHT22 (suhu objek + kelembapan) hanya dikirim ke dashboard, tidak dipakai kontrol. Tanpa fail-safe.
-
 #include <Arduino.h>
-#include <ArduinoJson.h> // harus v6
+#include <ArduinoJson.h> // Wajib ArduinoJson v6
 #include <DallasTemperature.h>
 #include <DHT.h>
-#include <HTTPClient.h>
 #include <LiquidCrystal_I2C.h>
 #include <OneWire.h>
 #include <PubSubClient.h>
@@ -15,342 +9,324 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 
-#if __has_include("secrets.h")
-#include "secrets.h"
-#endif
-#ifndef KODE_PERANGKAT
-#define KODE_PERANGKAT "INC-001"
-#endif
-#ifndef SSID_WIFI
-#define SSID_WIFI "POCO X5 5G"
-#endif
-#ifndef PASSWORD_WIFI
-#define PASSWORD_WIFI "cobaliathplu"
-#endif
-#ifndef HOST_MQTT
-#define HOST_MQTT "41.216.180.77"
-#endif
-#ifndef PASSWORD_MQTT
-#define PASSWORD_MQTT ""
-#endif
-#ifndef URL_HTTP
-#define URL_HTTP "http://iot-komdis-2.test"
-#endif
-#ifndef TOKEN_PERANGKAT
-#define TOKEN_PERANGKAT "dev-token-inc-001"
-#endif
-#ifndef ALAMAT_LCD
-#define ALAMAT_LCD 0x27
-#endif
-#ifndef RELAY_AKTIF_RENDAH
-#define RELAY_AKTIF_RENDAH 1 // 1 = modul relay active-low
-#endif
+// --- 1. Konfigurasi Perangkat & Jaringan ---
+#define KODE_PERANGKAT  "INC-001"
+#define SSID_WIFI       "POCO X5 5G"
+#define PASSWORD_WIFI   "cobaliathplu"
+#define HOST_MQTT       "41.216.180.77"
+#define PASSWORD_MQTT   ""
+#define ALAMAT_LCD      0x27
+#define RELAY_NYALA_LOW true
 
-// ---------- Pin ----------
-const uint8_t PIN_DS18B20 = 4, PIN_DHT22 = 5;
-enum Relay : uint8_t
-{
-    KIPAS,
-    PEMANAS1,
-    PEMANAS2,
-    LAMPU,
-    JUMLAH_RELAY
-};
-const uint8_t PIN_RELAY[JUMLAH_RELAY] = {25, 26, 27, 14};
-const char *NAMA_RELAY[JUMLAH_RELAY] = {"fan", "heater_1", "heater_2", "blue_light"};
+const int PIN_SENSOR_RUANGAN = 4;
+const int PIN_SENSOR_BAYI    = 5;
 
-// ---------- Parameter ----------
-const unsigned long TTL_OVERRIDE_MS = 60000;
+enum IndeksRelay { KIPAS, PEMANAS_1, PEMANAS_2, LAMPU_BIRU, JUMLAH_RELAY };
+const int PIN_RELAY[JUMLAH_RELAY]           = {25, 26, 27, 14};
+const char* NAMA_RELAY_SERVER[JUMLAH_RELAY] = {"fan", "heater_1", "heater_2", "blue_light"};
+const unsigned long DURASI_KONTROL_MANUAL   = 10000;
 
-// ---------- Objek ----------
-OneWire oneWire(PIN_DS18B20);
-DallasTemperature ds18b20(&oneWire);
-DHT dht(PIN_DHT22, DHT22);
-LiquidCrystal_I2C lcd(ALAMAT_LCD, 16, 2);
-WiFiClientSecure tlsClient;
-PubSubClient mqtt(tlsClient);
-String topikSync, topikTelemetri, topikStatus;
+// --- 2. Objek & Variabel Global ---
+OneWire jalurOneWire(PIN_SENSOR_RUANGAN);
+DallasTemperature sensorRuangan(&jalurOneWire);
+DHT sensorBayi(PIN_SENSOR_BAYI, DHT22);
+LiquidCrystal_I2C layarLcd(ALAMAT_LCD, 16, 2);
 
-// ---------- State (dibagi antar core) ----------
-// suhuRuang = DS18B20 (dipakai kontrol relay)
-// suhuObjek = DHT22 (hanya dikirim ke dashboard), kelembapan = DHT22
-float suhuObjek = 0, suhuRuang = 0, kelembapan = 0;
-bool objekValid = false, ruangValid = false;
+WiFiClientSecure klienWifiAman;
+PubSubClient koneksiMqtt(klienWifiAman);
+String topikPerintah, topikDataSensor, topikStatusOnline;
 
-float setpoint = 33.5f;
-bool lampuAktif = false;
+float suhuBayi = 0.0, suhuRuangan = 0.0, kelembapan = 0.0;
+bool sensorBayiNormal = false, sensorRuanganNormal = false;
 
-bool relay[JUMLAH_RELAY] = {};
-int8_t ovRelay[JUMLAH_RELAY] = {-1, -1, -1, -1}; // -1 auto, 0 mati, 1 nyala
-unsigned long overrideSampaiMs = 0;
+float suhuTarget = 33.5;
+float kp = 25.0, ki = 0.8, kd = 10.0;
+float integralPid = 0.0, errorSebelumnya = 0.0, outputPid = 0.0;
 
-// ---------- Helper ----------
-float clampF(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
-bool pilih(int8_t ov, bool otomatis) { return ov < 0 ? otomatis : ov > 0; }
-void setRelay(uint8_t pin, bool nyala) { digitalWrite(pin, nyala != (bool)RELAY_AKTIF_RENDAH); }
+bool lampuBiruAktif            = false;
+bool statusRelay[JUMLAH_RELAY] = {false, false, false, false};
+int perintahManual[JUMLAH_RELAY] = {-1, -1, -1, -1}; // -1: otomatis, 0: mati, 1: nyala
+bool modeManualAktif             = false;
+unsigned long waktuMulaiManual   = 0;
 
-bool sudahWaktu(unsigned long &terakhir, unsigned long ms, unsigned long interval)
-{
-    if (ms - terakhir < interval)
-        return false;
-    terakhir = ms;
-    return true;
+// --- 3. Fungsi Bantuan ---
+bool apakahSudahWaktunya(unsigned long &waktuTerakhir, unsigned long waktuSekarang, unsigned long jeda) {
+  if (waktuSekarang - waktuTerakhir < jeda) return false;
+  waktuTerakhir = waktuSekarang;
+  return true;
 }
 
-// ---------- Sync dari Laravel ----------
-void terapkanSync(const char *json, size_t len)
-{
-    StaticJsonDocument<128> filter;
-    filter["config"] = true;
-    filter["relay_overrides"] = true;
-
-    StaticJsonDocument<512> doc;
-    if (deserializeJson(doc, json, len, DeserializationOption::Filter(filter)))
-        return;
-
-    JsonObject cfg = doc["config"];
-    if (!cfg.isNull())
-    {
-        setpoint = clampF(cfg["temperature_setpoint"] | setpoint, 28.0f, 37.0f);
-        lampuAktif = cfg["blue_led_enabled"] | lampuAktif;
-    }
-
-    JsonObject ov = doc["relay_overrides"]; // {} = kembali auto
-    if (!ov.isNull())
-    {
-        for (uint8_t i = 0; i < JUMLAH_RELAY; i++)
-        {
-            JsonVariant v = ov[NAMA_RELAY[i]];
-            ovRelay[i] = v.is<bool>() ? v.as<bool>() : -1;
-        }
-        overrideSampaiMs = millis() + TTL_OVERRIDE_MS;
-    }
+float batasiAngka(float nilai, float batasBawah, float batasAtas) {
+  if (nilai < batasBawah) return batasBawah;
+  if (nilai > batasAtas) return batasAtas;
+  return nilai;
 }
 
-// ---------- Jaringan (Core 0) ----------
-// Sensor tidak valid dikirim sebagai 0 + sensor_status=false (NA di dashboard)
-size_t buatTelemetri(char *buf, size_t n)
-{
-    StaticJsonDocument<384> doc;
-    doc["device_code"] = KODE_PERANGKAT;
-    doc["temperature_object"] = objekValid ? roundf(suhuObjek * 100) / 100 : 0; // dari DHT22
-    doc["temperature_room"] = ruangValid ? roundf(suhuRuang * 100) / 100 : 0;   // dari DS18B20
-    doc["humidity"] = objekValid ? roundf(kelembapan * 10) / 10 : 0;            // dari DHT22
-    for (uint8_t i = 0; i < JUMLAH_RELAY; i++)
-        doc["relays"][NAMA_RELAY[i]] = relay[i];
-    doc["sensor_status"]["ds18b20"] = ruangValid;
-    doc["sensor_status"]["dht22"] = objekValid;
-    doc["uptime_s"] = millis() / 1000;
-    return serializeJson(doc, buf, n);
+bool tentukanStatusRelay(int modeManual, bool otomatis) {
+  if (modeManual == 1) return true;
+  if (modeManual == 0) return false;
+  return otomatis;
 }
 
-void rawatJaringan(unsigned long ms)
-{
-    static unsigned long cobaWifiMs = 0, cobaMqttMs = 0;
-
-    if (WiFi.status() != WL_CONNECTED)
-    {
-        if (sudahWaktu(cobaWifiMs, ms, 5000))
-            WiFi.reconnect();
-        return;
-    }
-    if (mqtt.connected())
-    {
-        mqtt.loop();
-        return;
-    }
-    if (!sudahWaktu(cobaMqttMs, ms, 5000))
-        return;
-
-    if (mqtt.connect(KODE_PERANGKAT, KODE_PERANGKAT, PASSWORD_MQTT, topikStatus.c_str(), 1, true, "{\"online\":false}"))
-    {
-        mqtt.publish(topikStatus.c_str(), "{\"online\":true}", true);
-        mqtt.subscribe(topikSync.c_str(), 1);
-    }
+void ubahKondisiRelay(int pin, bool nyala) {
+  digitalWrite(pin, (nyala == RELAY_NYALA_LOW) ? LOW : HIGH);
 }
 
-void kirimTelemetri()
-{
-    if (WiFi.status() != WL_CONNECTED)
-        return;
-    char body[384];
-    size_t n = buatTelemetri(body, sizeof body);
+// --- 4. Pembacaan Sensor (Core 1) ---
+void bacaSemuaSensor(unsigned long waktuSekarang) {
+  static unsigned long waktuUkurRuangan = 0, waktuBacaDht = 0;
+  static bool sedangMengukurRuangan = false;
 
-    if (mqtt.connected())
-    {
-        mqtt.publish(topikTelemetri.c_str(), body);
-        return;
-    }
+  if (!sedangMengukurRuangan) {
+    sensorRuangan.requestTemperatures();
+    waktuUkurRuangan = waktuSekarang;
+    sedangMengukurRuangan = true;
+  } else if (waktuSekarang - waktuUkurRuangan >= 500) {
+    sedangMengukurRuangan = false;
+    float hasil = sensorRuangan.getTempCByIndex(0);
+    sensorRuanganNormal = (hasil > -50.0 && hasil < 84.0);
+    if (sensorRuanganNormal) suhuRuangan = hasil;
+  }
 
-    // Fallback HTTP jika MQTT mati; respons berisi sync
-    HTTPClient http;
-    http.setTimeout(3000);
-    if (!http.begin(String(URL_HTTP) + "/api/devices/telemetry"))
-        return;
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-Device-Token", TOKEN_PERANGKAT);
-    if (http.POST((uint8_t *)body, n) == HTTP_CODE_OK)
-    {
-        String res = http.getString();
-        terapkanSync(res.c_str(), res.length());
+  if (apakahSudahWaktunya(waktuBacaDht, waktuSekarang, 2500)) {
+    float t = sensorBayi.readTemperature();
+    float h = sensorBayi.readHumidity();
+    sensorBayiNormal = (!isnan(t) && !isnan(h));
+    if (sensorBayiNormal) {
+      suhuBayi = t;
+      kelembapan = h;
     }
-    http.end();
+  }
 }
 
-void taskJaringan(void *)
-{
-    unsigned long kirimMs = 0;
-    for (;;)
-    {
-        unsigned long ms = millis();
-        rawatJaringan(ms);
-        if (sudahWaktu(kirimMs, ms, 3000))
-            kirimTelemetri();
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
+// --- 5. Algoritma PID & Kontrol Relay Bertingkat Tanpa PWM (Core 1) ---
+void hitungPid() {
+  if (!sensorRuanganNormal) {
+    integralPid = 0.0;
+    errorSebelumnya = 0.0;
+    outputPid = 0.0;
+    return;
+  }
+
+  float error     = suhuTarget - suhuRuangan;
+  integralPid     = batasiAngka(integralPid + error, -50.0, 50.0);
+  float turunan   = error - errorSebelumnya;
+  errorSebelumnya = error;
+
+  // Output PID bernilai -100 (terlalu panas) sampai +100 (butuh pemanasan penuh)
+  outputPid = batasiAngka((kp * error) + (ki * integralPid) + (kd * turunan), -100.0, 100.0);
 }
 
-// ---------- Sensor (Core 1) ----------
-void bacaSensor(unsigned long ms)
-{
-    static unsigned long reqDsMs = 0, reqDhtMs = 0;
-    static bool menungguDs = false;
+void aturRelay(unsigned long waktuSekarang) {
+  if (modeManualAktif && (waktuSekarang - waktuMulaiManual >= DURASI_KONTROL_MANUAL)) {
+    for (int i = 0; i < JUMLAH_RELAY; i++) perintahManual[i] = -1;
+    modeManualAktif = false;
+  }
 
-    // DS18B20 non-blocking: minta konversi, ambil hasil 500 ms kemudian
-    if (!menungguDs)
-    {
-        ds18b20.requaestTemperatures();
-        reqDsMs = ms;
-        menungguDs = true;
-    }
-    else if (ms - reqDsMs >= 500)
-    {
-        menungguDs = false;
-        float t = ds18b20.getTempCByIndex(0);
-        ruangValid = t > -50 && t < 84; // tolak -127 (lepas) dan 85 (default)
-        if (ruangValid)
-            suhuRuang = t;
-    }
+  bool pemanas1Auto = false, pemanas2Auto = false, kipasAuto = false;
 
-    // DHT22 tiap 2,5 detik (hanya untuk dashboard)
-    if (sudahWaktu(reqDhtMs, ms, 2500))
-    {
-        float r = dht.readTemperature(), h = dht.readHumidity();
-        objekValid = !isnan(r) && !isnan(h);
-        if (objekValid)
-        {
-            suhuObjek = r;
-            kelembapan = h;
-        }
-    }
+  if (sensorRuanganNormal) {
+    // Pemanas 1 nyala saat output PID >= 20, mati saat <= 10
+    pemanas1Auto = statusRelay[PEMANAS_1];
+    if (outputPid >= 20.0) pemanas1Auto = true;
+    else if (outputPid <= 10.0) pemanas1Auto = false;
+
+    // Pemanas 2 ikut bantu saat output PID >= 60, mati saat <= 50
+    pemanas2Auto = statusRelay[PEMANAS_2];
+    if (outputPid >= 60.0) pemanas2Auto = true;
+    else if (outputPid <= 50.0) pemanas2Auto = false;
+
+    // Kipas nyala saat output PID <= -20 (suhu berlebih), mati saat >= -10
+    kipasAuto = statusRelay[KIPAS];
+    if (outputPid <= -20.0) kipasAuto = true;
+    else if (outputPid >= -10.0) kipasAuto = false;
+  }
+
+  statusRelay[KIPAS]      = tentukanStatusRelay(perintahManual[KIPAS], kipasAuto);
+  statusRelay[PEMANAS_1]  = tentukanStatusRelay(perintahManual[PEMANAS_1], pemanas1Auto);
+  statusRelay[PEMANAS_2]  = tentukanStatusRelay(perintahManual[PEMANAS_2], pemanas2Auto);
+  statusRelay[LAMPU_BIRU] = tentukanStatusRelay(perintahManual[LAMPU_BIRU], lampuBiruAktif);
+
+  for (int i = 0; i < JUMLAH_RELAY; i++) {
+    ubahKondisiRelay(PIN_RELAY[i], statusRelay[i]);
+  }
 }
 
-// ---------- Kontrol ----------
-void updateKontrol(unsigned long ms)
-{
-    // Override hangus jika lama tidak ada sync
-    if (overrideSampaiMs && (int32_t)(ms - overrideSampaiMs) > 0)
-    {
-        memset(ovRelay, -1, sizeof ovRelay);
-        overrideSampaiMs = 0;
+// --- 6. Tampilan LCD Bergerak & Serial Monitor (Core 1) ---
+void tampilkanTeksBerjalan(int baris, const String &teks, int &posisi) {
+  String teksPenuh = "                " + teks + "                ";
+  if (posisi > (int)teksPenuh.length() - 16) posisi = 0;
+
+  layarLcd.setCursor(0, baris);
+  layarLcd.print(teksPenuh.substring(posisi, posisi + 16));
+  posisi++;
+}
+
+void perbaruiLayarLcd() {
+  static int posAtas = 0, posBawah = 0;
+
+  String sBayi   = sensorBayiNormal    ? String(suhuBayi, 1) + " C"    : "ERROR";
+  String sRuang  = sensorRuanganNormal ? String(suhuRuangan, 1) + " C" : "ERROR";
+  String sLembap = sensorBayiNormal    ? String(kelembapan, 1) + " %"  : "ERROR";
+
+  String barisAtas  = "SUHU BAYI: " + sBayi + " | SUHU RUANGAN: " + sRuang + " | KELEMBAPAN: " + sLembap;
+  String barisBawah = "TARGET: " + String(suhuTarget, 1) + " C | PID: " + String(outputPid, 0) +
+                      " | KIPAS: " + (statusRelay[KIPAS] ? "NYALA" : "MATI") +
+                      " | PEMANAS 1: " + (statusRelay[PEMANAS_1] ? "NYALA" : "MATI") +
+                      " | PEMANAS 2: " + (statusRelay[PEMANAS_2] ? "NYALA" : "MATI") +
+                      " | LAMPU: " + (statusRelay[LAMPU_BIRU] ? "NYALA" : "MATI");
+
+  tampilkanTeksBerjalan(0, barisAtas, posAtas);
+  tampilkanTeksBerjalan(1, barisBawah, posBawah);
+}
+
+void tampilkanKeSerialMonitor() {
+  Serial.println("========================================");
+  Serial.printf("SUHU BAYI       : %s\n", sensorBayiNormal ? (String(suhuBayi, 1) + " C").c_str() : "TIDAK TERBACA");
+  Serial.printf("SUHU RUANGAN    : %s\n", sensorRuanganNormal ? (String(suhuRuangan, 1) + " C").c_str() : "TIDAK TERBACA");
+  Serial.printf("KELEMBAPAN      : %s\n", sensorBayiNormal ? (String(kelembapan, 1) + " %").c_str() : "TIDAK TERBACA");
+  Serial.printf("TARGET & PID    : %.1f C | Output PID: %.1f (Kp:%.1f Ki:%.1f Kd:%.1f)\n", suhuTarget, outputPid, kp, ki, kd);
+  Serial.printf("MODE KONTROL    : %s\n", modeManualAktif ? "MANUAL (10 Detik)" : "OTOMATIS (PID)");
+  Serial.printf("STATUS RELAY    : Kipas=%s | Pemanas1=%s | Pemanas2=%s | Lampu=%s\n",
+                statusRelay[KIPAS] ? "NYALA" : "MATI",
+                statusRelay[PEMANAS_1] ? "NYALA" : "MATI",
+                statusRelay[PEMANAS_2] ? "NYALA" : "MATI",
+                statusRelay[LAMPU_BIRU] ? "NYALA" : "MATI");
+}
+
+// --- 7. Komunikasi WiFi & MQTT (Core 0) ---
+void prosesPerintahServer(const char* dataJson, unsigned int panjangData) {
+  StaticJsonDocument<512> doc;
+  if (deserializeJson(doc, dataJson, panjangData)) return;
+
+  JsonObject config = doc["config"];
+  if (!config.isNull()) {
+    suhuTarget     = batasiAngka(config["temperature_setpoint"] | suhuTarget, 28.0, 37.0);
+    lampuBiruAktif = config["blue_led_enabled"] | lampuBiruAktif;
+    kp             = batasiAngka(config["kp"] | kp, 0.0, 500.0);
+    ki             = batasiAngka(config["ki"] | ki, 0.0, 100.0);
+    kd             = batasiAngka(config["kd"] | kd, 0.0, 500.0);
+  }
+
+  JsonObject overrides = doc["relay_overrides"];
+  if (!overrides.isNull()) {
+    for (int i = 0; i < JUMLAH_RELAY; i++) {
+      JsonVariant nilai = overrides[NAMA_RELAY_SERVER[i]];
+      perintahManual[i] = nilai.is<bool>() ? (nilai.as<bool>() ? 1 : 0) : -1;
     }
+    modeManualAktif  = true;
+    waktuMulaiManual = millis();
+  }
+}
 
-    // Kontrol on/off berdasarkan suhu RUANG (DS18B20). Sensor error = semua otomatis mati.
-    // Sebuah relay yang sedang ON memakai batas mati, yang OFF memakai batas nyala.
-    bool h1 = false, h2 = false, kipasAuto = false;
-    if (ruangValid)
-    {
-        h1 = relay[PEMANAS1] ? suhuRuang < setpoint : suhuRuang < setpoint - 0.5f;             // nyala < SP-0,5 | mati >= SP
-        h2 = relay[PEMANAS2] ? suhuRuang < setpoint - 1.0f : suhuRuang < setpoint - 1.5f;      // nyala < SP-1,5 | mati >= SP-1
-        kipasAuto = relay[KIPAS] ? suhuRuang > setpoint + 1.5f : suhuRuang >= setpoint + 2.0f; // nyala >= SP+2 | mati <= SP+1,5
+void saatPesanMqttDiterima(char* topik, byte* isiPesan, unsigned int panjangPesan) {
+  prosesPerintahServer((const char*)isiPesan, panjangPesan);
+}
+
+void kirimDataKeServer() {
+  if (WiFi.status() != WL_CONNECTED || !koneksiMqtt.connected()) return;
+
+  StaticJsonDocument<512> doc;
+  doc["device_code"]        = KODE_PERANGKAT;
+  doc["temperature_object"] = sensorBayiNormal    ? roundf(suhuBayi * 100) / 100    : 0;
+  doc["temperature_room"]   = sensorRuanganNormal ? roundf(suhuRuangan * 100) / 100 : 0;
+  doc["humidity"]           = sensorBayiNormal    ? roundf(kelembapan * 10) / 10    : 0;
+  doc["pid_output"]         = roundf(outputPid * 10) / 10;
+  doc["kp"]                 = kp;
+  doc["ki"]                 = ki;
+  doc["kd"]                 = kd;
+
+  for (int i = 0; i < JUMLAH_RELAY; i++) {
+    doc["relays"][NAMA_RELAY_SERVER[i]] = statusRelay[i];
+  }
+
+  doc["sensor_status"]["ds18b20"] = sensorRuanganNormal;
+  doc["sensor_status"]["dht22"]   = sensorBayiNormal;
+  doc["uptime_s"]                 = millis() / 1000;
+
+  char payload[512];
+  serializeJson(doc, payload, sizeof(payload));
+  koneksiMqtt.publish(topikDataSensor.c_str(), payload);
+}
+
+void jagaKoneksiJaringan(unsigned long waktuSekarang) {
+  static unsigned long waktuCobaWifi = 0, waktuCobaMqtt = 0;
+
+  if (WiFi.status() != WL_CONNECTED) {
+    if (apakahSudahWaktunya(waktuCobaWifi, waktuSekarang, 5000)) WiFi.reconnect();
+    return;
+  }
+
+  if (koneksiMqtt.connected()) {
+    koneksiMqtt.loop();
+    return;
+  }
+
+  if (apakahSudahWaktunya(waktuCobaMqtt, waktuSekarang, 5000)) {
+    if (koneksiMqtt.connect(KODE_PERANGKAT, KODE_PERANGKAT, PASSWORD_MQTT,
+                            topikStatusOnline.c_str(), 1, true, "{\"online\":false}")) {
+      koneksiMqtt.publish(topikStatusOnline.c_str(), "{\"online\":true}", true);
+      koneksiMqtt.subscribe(topikPerintah.c_str(), 1);
     }
-
-    relay[KIPAS] = pilih(ovRelay[KIPAS], kipasAuto);
-    relay[PEMANAS1] = pilih(ovRelay[PEMANAS1], h1);
-    relay[PEMANAS2] = pilih(ovRelay[PEMANAS2], h2);
-    relay[LAMPU] = pilih(ovRelay[LAMPU], lampuAktif);
-
-    for (uint8_t i = 0; i < JUMLAH_RELAY; i++)
-        setRelay(PIN_RELAY[i], relay[i]);
+  }
 }
 
-// ---------- LCD ----------
-void tulisLcd(uint8_t baris, const char *teks)
-{
-    char buf[17];
-    snprintf(buf, sizeof buf, "%-16.16s", teks);
-    lcd.setCursor(0, baris);
-    lcd.print(buf);
+void tugasJaringanCore0(void* parameter) {
+  unsigned long waktuKirim = 0;
+  while (true) {
+    unsigned long sekarang = millis();
+    jagaKoneksiJaringan(sekarang);
+    if (apakahSudahWaktunya(waktuKirim, sekarang, 3000)) kirimDataKeServer();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
 }
 
-void fmt(char *b, size_t n, bool ok, float v)
-{
-    if (ok)
-        snprintf(b, n, "%.1f", v);
-    else
-        strcpy(b, "NA");
+// --- 8. Setup & Loop Utama (Core 1) ---
+void setup() {
+  Serial.begin(115200);
+
+  for (int i = 0; i < JUMLAH_RELAY; i++) {
+    ubahKondisiRelay(PIN_RELAY[i], false);
+    pinMode(PIN_RELAY[i], OUTPUT);
+  }
+
+  Wire.begin();
+  layarLcd.init();
+  layarLcd.backlight();
+
+  sensorRuangan.setWaitForConversion(false);
+  sensorRuangan.begin();
+  sensorRuangan.setResolution(11);
+  sensorBayi.begin();
+
+  String prefix     = String("incubator/") + KODE_PERANGKAT + "/";
+  topikPerintah     = prefix + "sync";
+  topikDataSensor   = prefix + "telemetry";
+  topikStatusOnline = prefix + "status";
+
+  klienWifiAman.setInsecure();
+  koneksiMqtt.setServer(HOST_MQTT, 8883);
+  koneksiMqtt.setBufferSize(1024);
+  koneksiMqtt.setCallback(saatPesanMqttDiterima);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(SSID_WIFI, PASSWORD_WIFI);
+  xTaskCreatePinnedToCore(tugasJaringanCore0, "TugasJaringan", 12288, nullptr, 1, nullptr, 0);
 }
 
-// Baris 1: B:<suhu bayi> R:<suhu ruang> Baris 2: S<setpoint> F<kipas> H<pemanas1><pemanas2> L<lampu>
-void updateLcd()
-{
-    char bayi[8], ruang[8], a[24], b[24];
-    fmt(bayi, sizeof bayi, objekValid, suhuObjek);
-    fmt(ruang, sizeof ruang, ruangValid, suhuRuang);
-    snprintf(a, sizeof a, "B:%s R:%s", bayi, ruang);
-    snprintf(b, sizeof b, "S%.1f F%d H%d%d L%d", setpoint, relay[KIPAS], relay[PEMANAS1], relay[PEMANAS2], relay[LAMPU]);
-    tulisLcd(0, a);
-    tulisLcd(1, b);
-}
+void loop() {
+  static unsigned long waktuKontrol = 0, waktuLcd = 0, waktuSerial = 0;
+  unsigned long sekarang = millis();
 
-// ---------- Setup & Loop ----------
-void setup()
-{
-    Serial.begin(115200);
+  bacaSemuaSensor(sekarang);
 
-    // Relay OFF dulu sebelum jadi OUTPUT (hindari glitch saat boot)
-    for (uint8_t pin : PIN_RELAY)
-    {
-        setRelay(pin, false);
-        pinMode(pin, OUTPUT);
-    }
+  if (apakahSudahWaktunya(waktuKontrol, sekarang, 1000)) {
+    hitungPid();
+    aturRelay(sekarang);
+  }
 
-    Wire.begin();
-    lcd.init();
-    lcd.backlight();
+  if (apakahSudahWaktunya(waktuLcd, sekarang, 350))     perbaruiLayarLcd();
+  if (apakahSudahWaktunya(waktuSerial, sekarang, 2000)) tampilkanKeSerialMonitor();
 
-    ds18b20.setWaitForConversion(false);
-    ds18b20.begin();
-    ds18b20.setResolution(11);
-    dht.begin();
-
-    String dasar = String("incubator/") + KODE_PERANGKAT + "/";
-    topikSync = dasar + "sync";
-    topikTelemetri = dasar + "telemetry";
-    topikStatus = dasar + "status";
-
-    tlsClient.setInsecure(); // prototype
-    mqtt.setServer(HOST_MQTT, 8883);
-    mqtt.setBufferSize(1024);
-    mqtt.setCallback([](char *, byte *p, unsigned int len)
-                     { terapkanSync((const char *)p, len); });
-
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(SSID_WIFI, PASSWORD_WIFI);
-    xTaskCreatePinnedToCore(taskJaringan, "jaringan", 12288, nullptr, 1, nullptr, 0);
-}
-
-void loop()
-{
-    static unsigned long kontrolMs = 0;
-    unsigned long ms = millis();
-
-    bacaSensor(ms);
-    if (ms - kontrolMs >= 500)
-    {
-        kontrolMs = ms;
-        updateKontrol(ms);
-        updateLcd();
-    }
-    delay(10);
+  delay(10);
 }
