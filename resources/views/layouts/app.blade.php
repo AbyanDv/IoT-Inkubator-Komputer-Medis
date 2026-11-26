@@ -2,6 +2,7 @@
     $user = auth()->user();
     $isFleet = request()->routeIs('incubators.*');
     $isBabies = request()->routeIs('babies.*');
+    $isGuide = request()->routeIs('firmware.guide');
 @endphp
 
 <!DOCTYPE html>
@@ -31,7 +32,7 @@
                 </span>
             </a>
 
-            <nav aria-label="Primary" class="order-3 -mx-1 flex w-full items-center gap-1 sm:order-none sm:mx-0 sm:w-auto">
+            <nav aria-label="Primary" class="order-3 -mx-1 flex w-full flex-wrap items-center gap-1 sm:order-none sm:mx-0 sm:w-auto">
                 <a
                     href="{{ route('incubators.index') }}"
                     @if ($isFleet) aria-current="page" @endif
@@ -42,6 +43,11 @@
                     @if ($isBabies) aria-current="page" @endif
                     class="rounded-lg px-3 py-2 text-sm font-semibold transition-colors duration-150 {{ $isBabies ? 'bg-ink text-white' : 'text-ink-soft hover:text-ink' }}"
                 >Babies</a>
+                <a
+                    href="{{ route('firmware.guide') }}"
+                    @if ($isGuide) aria-current="page" @endif
+                    class="rounded-lg px-3 py-2 text-sm font-semibold transition-colors duration-150 {{ $isGuide ? 'bg-ink text-white' : 'text-ink-soft hover:text-ink' }}"
+                >Codegraph</a>
             </nav>
 
             @if ($user)
@@ -89,5 +95,7 @@
             <p>Komputer Medis · Academic prototype</p>
         </div>
     </footer>
+
+    @yield('scripts')
 </body>
 </html>

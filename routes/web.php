@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\LiveTelemetryController;
 use App\Http\Controllers\BabyController;
 use App\Http\Controllers\ConfigController;
+use App\Http\Controllers\FirmwareGuideController;
 use App\Http\Controllers\IncubatorController;
 use App\Http\Controllers\RelayController;
 use App\Http\Controllers\SessionController;
@@ -21,6 +22,7 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [SessionController::class, 'destroy'])->middleware('auth')->name('logout');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/firmware-guide', [FirmwareGuideController::class, 'show'])->name('firmware.guide');
     Route::get('/babies', [BabyController::class, 'index'])->name('babies.index');
     Route::post('/babies', [BabyController::class, 'store'])->name('babies.store');
     Route::get('/babies/{baby}', [BabyController::class, 'show'])->name('babies.show');
